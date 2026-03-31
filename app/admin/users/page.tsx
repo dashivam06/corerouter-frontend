@@ -59,6 +59,17 @@ type PendingUserChange = {
   to: string;
 };
 
+type LifecycleRange = "7d" | "14d" | "1m" | "3m" | "6m" | "1y";
+
+const LIFECYCLE_RANGE_LABELS: Record<LifecycleRange, string> = {
+  "7d": "last 7 days",
+  "14d": "last 14 days",
+  "1m": "last 1 month",
+  "3m": "last 3 months",
+  "6m": "last 6 months",
+  "1y": "last 1 year",
+};
+
 export default function AdminUsersPage() {
   const { data: users } = useQuery({
     queryKey: ["admin-users"],
@@ -72,6 +83,7 @@ export default function AdminUsersPage() {
   >("ALL");
   const [roleTab, setRoleTab] = useState<"ALL" | "USER" | "ADMIN">("ALL");
   const [q, setQ] = useState("");
+  const [lifecycleRange, setLifecycleRange] = useState<LifecycleRange>("14d");
   const [roleOverrides, setRoleOverrides] = useState<Record<number, AdminUser["role"]>>({});
   const [statusOverrides, setStatusOverrides] = useState<Record<number, AdminUser["status"]>>({});
   const [pendingChange, setPendingChange] = useState<PendingUserChange | null>(null);
@@ -179,15 +191,43 @@ export default function AdminUsersPage() {
     return filtered.slice(start, start + PAGE_SIZE);
   }, [filtered, currentPage]);
 
-  // User lifecycle volume (mock): last 14 days
+  // User lifecycle volume (mock): dynamic by selected range
   const lifecycleSeries = useMemo(() => {
-    return Array.from({ length: 14 }, (_, i) => ({
-      day: `D-${13 - i}`,
-      CREATED: Math.max(0, 10 + i),
-      DELETED: i % 6 === 0 ? 1 : 0,
-      REVOKED: i % 5 === 0 ? 2 : 0,
-    }));
-  }, []);
+    if (lifecycleRange === "7d" || lifecycleRange === "14d" || lifecycleRange === "1m") {
+      const days = lifecycleRange === "7d" ? 7 : lifecycleRange === "14d" ? 14 : 30;
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      start.setDate(start.getDate() - (days - 1));
+
+      return Array.from({ length: days }, (_, i) => {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        return {
+          label:
+            days <= 14
+              ? d.toLocaleDateString(undefined, { weekday: "short" })
+              : d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+          CREATED: Math.max(0, 8 + (i % 9)),
+          DELETED: i % 8 === 0 ? 1 : 0,
+          REVOKED: i % 6 === 0 ? 1 : 0,
+        };
+      });
+    }
+
+    const months = lifecycleRange === "3m" ? 3 : lifecycleRange === "6m" ? 6 : 12;
+    const now = new Date();
+    const startMonth = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+
+    return Array.from({ length: months }, (_, i) => {
+      const d = new Date(startMonth.getFullYear(), startMonth.getMonth() + i, 1);
+      return {
+        label: d.toLocaleDateString(undefined, { month: "short" }),
+        CREATED: 24 + i * 3,
+        DELETED: i % 4 === 0 ? 2 : 1,
+        REVOKED: i % 3 === 0 ? 3 : 1,
+      };
+    });
+  }, [lifecycleRange]);
 
   return (
     <div>
@@ -227,14 +267,29 @@ export default function AdminUsersPage() {
 
       {/* Lifecycle volume */}
       <div className="mb-5 rounded-2xl border border-zinc-200 bg-white p-5">
-        <p className="mb-3 text-sm font-medium text-zinc-500">
-          User lifecycle volume by status, last 14 days (mock)
-        </p>
+        <div className="mb-3 flex items-center gap-3">
+          <p className="text-sm font-medium text-zinc-500">
+            User lifecycle volume by status, {LIFECYCLE_RANGE_LABELS[lifecycleRange]} (mock)
+          </p>
+          <select
+            value={lifecycleRange}
+            onChange={(e) => setLifecycleRange(e.target.value as LifecycleRange)}
+            className="ml-auto rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/20"
+            aria-label="User lifecycle range"
+          >
+            <option value="7d">7 days</option>
+            <option value="14d">14 days</option>
+            <option value="1m">1 month</option>
+            <option value="3m">3 months</option>
+            <option value="6m">6 months</option>
+            <option value="1y">1 year</option>
+          </select>
+        </div>
         <div className="h-[180px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={lifecycleSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid {...chartTheme.grid} vertical={false} />
-              <XAxis dataKey="day" tick={false} />
+              <XAxis dataKey="label" tick={chartTheme.axis.tick} axisLine={{ stroke: "#e4e4e7" }} tickLine={false} />
               <YAxis tick={chartTheme.axis.tick} axisLine={false} tickLine={false} width={40} />
               <Tooltip contentStyle={chartTheme.tooltip.contentStyle} />
               <Bar dataKey="CREATED" stackId="a" fill="#09090b" />

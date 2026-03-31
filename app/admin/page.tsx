@@ -262,6 +262,7 @@ export default function AdminDashboardPage() {
   const revenueTodayByHour = adminGetRevenueTodayByHour();
   const revenueYesterdayByHour = adminGetRevenueYesterdayByHour();
   const revenueSevenByHour = adminGetRevenueSevenDaysAgoByHour();
+  const earningsToday = revenueTodayByHour.reduce((a, b) => a + b, 0);
 
   const earningsStats = useMemo(() => {
     const list = tasks ?? [];
@@ -341,6 +342,12 @@ export default function AdminDashboardPage() {
           </p>
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+          <p className="mb-1 text-xs text-zinc-500">Today&apos;s earning (रू)</p>
+          <p className="text-2xl font-semibold text-zinc-950">
+            {formatNPR(earningsToday)}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
           <p className="mb-1 text-xs text-zinc-500">Task processed today</p>
           <p className="text-2xl font-semibold text-zinc-950">
             {tasksStats.completedToday}
@@ -351,10 +358,6 @@ export default function AdminDashboardPage() {
           <p className="text-2xl font-semibold text-zinc-950">
             {(users ?? []).length}
           </p>
-        </div>
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <p className="mb-1 text-xs text-zinc-500">New API keys today</p>
-          <p className="text-2xl font-semibold text-zinc-950">0</p>
         </div>
       </div>
 

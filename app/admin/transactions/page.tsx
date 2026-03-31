@@ -32,6 +32,17 @@ function startOfDay(d: Date) {
   return x;
 }
 
+type ChartRange = "7d" | "14d" | "1m" | "3m" | "6m" | "1y";
+
+const CHART_RANGE_LABELS: Record<ChartRange, string> = {
+  "7d": "last 7 days",
+  "14d": "last 14 days",
+  "1m": "last 1 month",
+  "3m": "last 3 months",
+  "6m": "last 6 months",
+  "1y": "last 1 year",
+};
+
 export default function AdminTransactionsPage() {
   const { data: txs } = useQuery({
     queryKey: ["admin-transactions"],
@@ -54,6 +65,7 @@ export default function AdminTransactionsPage() {
   const [type, setType] = useState<"ALL" | "WALLET" | "CARD" | "WALLET_TOPUP">("ALL");
   const [dateFilter, setDateFilter] = useState<"TODAY" | "ALL">("TODAY");
   const [q, setQ] = useState("");
+  const [chartRange, setChartRange] = useState<ChartRange>("7d");
 
   const todayStart = useMemo(() => startOfDay(new Date()), []);
   const yesterdayStart = useMemo(() => {
@@ -142,28 +154,57 @@ export default function AdminTransactionsPage() {
   }, [list, monthStart, taskList, todayStart, yesterdayStart]);
 
   const chartData = useMemo(() => {
-    const today = new Date();
-    const start = new Date(today);
-    start.setDate(start.getDate() - 6);
-    start.setHours(0, 0, 0, 0);
-    return Array.from({ length: 7 }, (_, i) => {
-      const d0 = new Date(start);
-      d0.setDate(start.getDate() + i);
-      const d1 = new Date(d0);
-      d1.setDate(d0.getDate() + 1);
-      const amount = list
-        .filter((t) => t.status === "COMPLETED")
+    const completed = list.filter((t) => t.status === "COMPLETED");
+    const now = new Date();
+
+    if (chartRange === "7d" || chartRange === "14d" || chartRange === "1m") {
+      const days = chartRange === "7d" ? 7 : chartRange === "14d" ? 14 : 30;
+      const start = startOfDay(now);
+      start.setDate(start.getDate() - (days - 1));
+
+      return Array.from({ length: days }, (_, i) => {
+        const d0 = new Date(start);
+        d0.setDate(start.getDate() + i);
+        const d1 = new Date(d0);
+        d1.setDate(d0.getDate() + 1);
+
+        const amount = completed
+          .filter((t) => {
+            const ts = new Date(t.completed_at ?? t.created_at).getTime();
+            return ts >= d0.getTime() && ts < d1.getTime();
+          })
+          .reduce((a, t) => a + (t.amount ?? 0), 0);
+
+        return {
+          label:
+            days <= 14
+              ? d0.toLocaleDateString(undefined, { weekday: "short" })
+              : d0.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+          value: amount,
+        };
+      });
+    }
+
+    const months = chartRange === "3m" ? 3 : chartRange === "6m" ? 6 : 12;
+    const startMonth = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+
+    return Array.from({ length: months }, (_, i) => {
+      const m0 = new Date(startMonth.getFullYear(), startMonth.getMonth() + i, 1);
+      const m1 = new Date(startMonth.getFullYear(), startMonth.getMonth() + i + 1, 1);
+
+      const amount = completed
         .filter((t) => {
           const ts = new Date(t.completed_at ?? t.created_at).getTime();
-          return ts >= d0.getTime() && ts < d1.getTime();
+          return ts >= m0.getTime() && ts < m1.getTime();
         })
         .reduce((a, t) => a + (t.amount ?? 0), 0);
+
       return {
-        day: d0.toLocaleDateString(undefined, { weekday: "short" }),
+        label: m0.toLocaleDateString(undefined, { month: "short" }),
         value: amount,
       };
     });
-  }, [list]);
+  }, [list, chartRange]);
 
   return (
     <div>
@@ -187,14 +228,29 @@ export default function AdminTransactionsPage() {
       </div>
 
       <div className="mb-5 rounded-2xl border border-zinc-200 bg-white p-5">
-        <p className="mb-3 text-sm font-medium text-zinc-500">
-          Daily transaction volume (रू) — last 7 days
-        </p>
+        <div className="mb-3 flex items-center gap-3">
+          <p className="text-sm font-medium text-zinc-500">
+            Daily transaction volume (रू) — {CHART_RANGE_LABELS[chartRange]}
+          </p>
+          <select
+            value={chartRange}
+            onChange={(e) => setChartRange(e.target.value as ChartRange)}
+            className="ml-auto rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus-visible:ring-2 focus-visible:ring-zinc-950/20"
+            aria-label="Transaction chart range"
+          >
+            <option value="7d">7 days</option>
+            <option value="14d">14 days</option>
+            <option value="1m">1 month</option>
+            <option value="3m">3 months</option>
+            <option value="6m">6 months</option>
+            <option value="1y">1 year</option>
+          </select>
+        </div>
         <div className="h-[180px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid {...chartTheme.grid} vertical={false} />
-              <XAxis dataKey="day" tick={chartTheme.axis.tick} axisLine={{ stroke: "#e4e4e7" }} tickLine={false} />
+              <XAxis dataKey="label" tick={chartTheme.axis.tick} axisLine={{ stroke: "#e4e4e7" }} tickLine={false} />
               <YAxis
                 tick={chartTheme.axis.tick}
                 axisLine={false}
