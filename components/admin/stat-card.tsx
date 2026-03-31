@@ -6,12 +6,14 @@ export function AdminStatCard({
   value,
   className,
   valueClassName,
+  labelClassName,
   delta,
 }: {
   label: string;
   value: ReactNode;
   className?: string;
   valueClassName?: string;
+  labelClassName?: string;
   delta?: { text: string; positive: boolean } | null;
 }) {
   return (
@@ -21,7 +23,7 @@ export function AdminStatCard({
         className
       )}
     >
-      <p className="mb-1 text-xs text-zinc-500">{label}</p>
+      <p className={cn("mb-1 text-xs text-zinc-500", labelClassName)}>{label}</p>
       <p
         className={cn("text-2xl font-semibold text-zinc-950", valueClassName)}
       >

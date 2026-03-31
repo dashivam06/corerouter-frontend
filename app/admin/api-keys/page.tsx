@@ -65,7 +65,6 @@ export default function AdminApiKeysPage() {
 
   const [status, setStatus] = useState<"ALL" | "ACTIVE" | "INACTIVE" | "REVOKED">("ALL");
   const [q, setQ] = useState("");
-  const [statusRange, setStatusRange] = useState("30d");
   const [seriesRange, setSeriesRange] = useState("6m");
   const [statusOverrides, setStatusOverrides] = useState<Record<number, AdminApiKey["status"]>>({});
   const [pendingStatusChange, setPendingStatusChange] = useState<PendingApiKeyStatusChange | null>(null);
@@ -223,20 +222,10 @@ export default function AdminApiKeysPage() {
         </div>
 
         <div className="rounded-2xl border border-zinc-200 bg-white p-5 lg:col-span-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="mb-3 flex items-center gap-3">
             <p className="text-sm font-semibold text-zinc-950">
               Status distribution
             </p>
-            <Select value={statusRange} onValueChange={(v) => v != null && setStatusRange(v)}>
-              <SelectTrigger className="h-8 w-[130px] rounded-lg border-zinc-200 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl">
-                <SelectItem value="7d">Last 7 days</SelectItem>
-                <SelectItem value="30d">Last 30 days</SelectItem>
-                <SelectItem value="all">All time</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
           <div className="h-[180px]">
             <ResponsiveContainer width="100%" height="100%">

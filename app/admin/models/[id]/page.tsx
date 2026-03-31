@@ -11,6 +11,7 @@ import {
   adminFetchApiKeys,
 } from "@/lib/admin-api";
 import { AdminHeader } from "@/components/admin/admin-header";
+import { AdminStatCard } from "@/components/admin/stat-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { JsonTreeEditor } from "@/components/admin/json-tree-editor";
 import { JsonPreview } from "@/components/admin/json-preview";
@@ -104,26 +105,22 @@ export default function AdminModelDetailPage({
       {/* ZONE 1 usage overview */}
       <section className="mt-5">
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <div className="text-xs text-zinc-500 mb-1">Total requests this month</div>
-            <div className="text-2xl font-semibold text-zinc-950">—</div>
-          </div>
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <div className="text-xs text-zinc-500 mb-1">Total cost billed (रू)</div>
-            <div className="text-2xl font-semibold text-zinc-950">
-              {formatNPR(1250)}
-            </div>
-          </div>
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <div className="text-xs text-zinc-500 mb-1">Avg cost/request</div>
-            <div className="text-2xl font-semibold text-zinc-950">
-              {formatNPR(0.42)}
-            </div>
-          </div>
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <div className="text-xs text-zinc-500 mb-1">Active API keys on this model</div>
-            <div className="text-2xl font-semibold text-zinc-950">—</div>
-          </div>
+          <AdminStatCard
+            label="Total requests this month"
+            value="—"
+          />
+          <AdminStatCard
+            label="Total cost billed (रू)"
+            value={formatNPR(1250)}
+          />
+          <AdminStatCard
+            label="Avg cost/request"
+            value={formatNPR(0.42)}
+          />
+          <AdminStatCard
+            label="Active API keys on this model"
+            value="—"
+          />
         </div>
 
         <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-2">

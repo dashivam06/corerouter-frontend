@@ -15,7 +15,7 @@ export function ModelTypePie({
   data: { name: string; value: number; type: string }[];
 }) {
   return (
-    <ResponsiveContainer width="100%" height={200}>
+    <ResponsiveContainer width="100%" height={150}>
       <PieChart>
         <Pie
           data={data}
@@ -23,8 +23,8 @@ export function ModelTypePie({
           nameKey="name"
           cx="50%"
           cy="50%"
-          innerRadius={56}
-          outerRadius={80}
+          innerRadius={42}
+          outerRadius={62}
           paddingAngle={2}
           stroke="none"
         >
