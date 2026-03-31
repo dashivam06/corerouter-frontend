@@ -3,23 +3,14 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Plus,
-  Server,
   ShieldAlert,
-  RotateCcw,
-  Trash2,
 } from "lucide-react";
 import { AdminHeader } from "@/components/admin/admin-header";
 import { AdminStatCard } from "@/components/admin/stat-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import {
   adminFetchServiceTokens,
-  adminFetchWorkers,
 } from "@/lib/admin-api";
-import type {
-  AdminServiceToken,
-  AdminWorkerInstance,
-} from "@/lib/admin-mock-data";
 import { formatRelative } from "@/lib/formatters";
 import {
   Dialog,
@@ -43,24 +34,12 @@ import { OneTimeRevealModal } from "@/components/shared/one-time-reveal-modal";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 export default function AdminWorkersPage() {
-  const { data: workers } = useQuery({
-    queryKey: ["admin-workers"],
-    queryFn: adminFetchWorkers,
-  });
   const { data: tokens } = useQuery({
     queryKey: ["admin-service-tokens"],
     queryFn: adminFetchServiceTokens,
   });
 
-  const list = workers ?? [];
   const tokenList = tokens ?? [];
-
-  const instanceStats = useMemo(() => {
-    const total = list.length;
-    const online = list.filter((w) => w.status === "ONLINE").length;
-    const down = list.filter((w) => w.status !== "ONLINE").length;
-    return { total, online, down };
-  }, [list]);
 
   const [tokenDialogOpen, setTokenDialogOpen] = useState(false);
   const [tokenName, setTokenName] = useState("");
@@ -81,136 +60,57 @@ export default function AdminWorkersPage() {
   return (
     <div>
       <AdminHeader
-        title="Workers & Service Tokens"
-        subtitle="Worker instances and operator access tokens (mock UI)"
+        title="Service Tokens"
+        subtitle="Issue and manage operator access tokens (mock UI)"
       />
 
-      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <AdminStatCard label="Total instances" value={instanceStats.total} />
-        <AdminStatCard label="Online" value={instanceStats.online} />
-        <AdminStatCard
-          label="Offline / Down"
-          value={instanceStats.down}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-3">
-        {list.map((w) => {
-          const staleMinutes =
-            (Date.now() - new Date(w.last_heartbeat).getTime()) / 60000;
-          const stale = w.status === "STALE" || staleMinutes > 5;
-          return (
-            <div
-              key={w.instance_id}
-              className={`rounded-2xl border border-zinc-200 bg-white p-4 ${
-                stale ? "text-red-600" : "text-zinc-950"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[15px] font-semibold text-zinc-950">
-                    {w.service_name}
-                  </div>
-                  <div className="mt-1 font-mono text-xs text-zinc-400">
-                    {w.instance_id}
-                  </div>
-                </div>
-                <StatusBadge status={w.status} />
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-                <div>
-                  <div className="text-zinc-400">Last heartbeat</div>
-                  <div className={stale ? "text-red-600 font-medium" : "text-zinc-900"}>
-                    {formatRelative(new Date(w.last_heartbeat))}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-zinc-400">Uptime</div>
-                  <div className="text-zinc-900">
-                    {w.down_at ? `Down since ${formatRelative(new Date(w.down_at))}` : `Up`}
-                  </div>
-                </div>
-              </div>
-              {w.status === "DOWN" && w.reason ? (
-                <div className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
-                  {w.reason}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="my-6 border-t border-zinc-200 pt-6">
-        <div className="mb-5 flex items-center justify-between gap-4">
-          <div>
-            <div className="text-[15px] font-semibold text-zinc-950">
-              Service Tokens
-            </div>
-            <div className="mt-1 text-xs text-zinc-400">
-              Issue and manage operator tokens (mock UI)
-            </div>
-          </div>
-          <Button
-            type="button"
-            className="rounded-xl bg-zinc-950 px-4 py-2 text-white hover:bg-zinc-900"
-            onClick={() => setTokenDialogOpen(true)}
-          >
-            Issue new token
-          </Button>
-        </div>
-
-        <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div>
+        <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {(() => {
             const total = tokenList.length;
             const active = tokenList.filter((t) => t.active).length;
             const inactive = total - active;
-            const roleCounts = {
-              WORKER: tokenList.filter((t) => t.role === "WORKER").length,
-              ANALYTICS: tokenList.filter((t) => t.role === "ANALYTICS").length,
-              ADMIN: tokenList.filter((t) => t.role === "ADMIN").length,
-            };
             return (
               <>
-                <AdminStatCard label="Total tokens" value={total} />
+                <AdminStatCard
+                  label="Total tokens"
+                  value={total}
+                  className="border-zinc-950 bg-zinc-950"
+                  labelClassName="text-zinc-300"
+                  valueClassName="text-white"
+                />
                 <AdminStatCard label="Active" value={active} />
                 <AdminStatCard label="Inactive" value={inactive} />
-                <AdminStatCard
-                  label="Roles"
-                  value={`${roleCounts.WORKER} / ${roleCounts.ANALYTICS} / ${roleCounts.ADMIN}`}
-                />
               </>
             );
           })()}
         </div>
 
-        {tokenList.some((t) => t.active && !t.last_used_at) ? (
-          <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
-            <div className="flex items-center gap-3">
-              <ShieldAlert className="size-5" />
-              <div>
-                Dormant signal — at least one active token has no last-used timestamp.
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden">
-          <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 px-4 py-3">
-            {roleTabs.map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRoleFilter(r)}
-                className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
-                  roleFilter === r
-                    ? "bg-zinc-950 text-white"
-                    : "text-zinc-500 hover:bg-zinc-100"
-                }`}
-              >
-                {r === "ALL" ? "All" : r}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {roleTabs.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRoleFilter(r)}
+                  className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                    roleFilter === r
+                      ? "bg-zinc-950 text-white"
+                      : "text-zinc-500 hover:bg-zinc-100"
+                  }`}
+                >
+                  {r === "ALL" ? "All" : r}
+                </button>
+              ))}
+            </div>
+            <Button
+              type="button"
+              className="rounded-lg bg-zinc-950 px-3 py-1.5 text-xs text-white hover:bg-zinc-900"
+              onClick={() => setTokenDialogOpen(true)}
+            >
+              Create token
+            </Button>
           </div>
           <table className="w-full text-left text-sm">
             <thead className="bg-zinc-50 border-b border-zinc-100">

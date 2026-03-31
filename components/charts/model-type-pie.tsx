@@ -20,28 +20,30 @@ export function ModelTypePie({
   const outerRadius = typeCount <= 2 ? 92 : 76;
 
   return (
-    <ResponsiveContainer width="100%" height={chartHeight}>
-      <PieChart>
-        <Pie
-          data={data}
-          dataKey="value"
-          nameKey="name"
-          cx="50%"
-          cy="50%"
-          innerRadius={innerRadius}
-          outerRadius={outerRadius}
-          paddingAngle={2}
-          stroke="none"
-        >
-          {data.map((e) => (
-            <Cell key={e.type} fill={COLORS[e.type] ?? "#a1a1aa"} />
-          ))}
-        </Pie>
-        <Tooltip
-          contentStyle={chartTheme.tooltip.contentStyle}
-        />
-      </PieChart>
-    </ResponsiveContainer>
+    <div className="w-full min-w-0" style={{ minHeight: chartHeight, height: chartHeight }}>
+      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={chartHeight}>
+        <PieChart>
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            innerRadius={innerRadius}
+            outerRadius={outerRadius}
+            paddingAngle={2}
+            stroke="none"
+          >
+            {data.map((e) => (
+              <Cell key={e.type} fill={COLORS[e.type] ?? "#a1a1aa"} />
+            ))}
+          </Pie>
+          <Tooltip
+            contentStyle={chartTheme.tooltip.contentStyle}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 

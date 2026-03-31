@@ -10,7 +10,7 @@ import { useAuthStore } from "@/stores/auth-store";
 
 const surfaceLowest = "bg-[#0e0e10]";
 const labelClass =
-  "text-[10px] font-bold uppercase tracking-widest text-zinc-400 font-poppins";
+  "text-[10px] font-bold uppercase tracking-widest text-zinc-400";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -51,7 +51,7 @@ export default function LoginPage() {
 
   return (
     <div
-      className={`min-h-screen ${surfaceLowest} flex flex-col items-center justify-center gap-12 px-6 py-12 text-[#e5e1e4] selection:bg-white selection:text-black `}
+      className={`min-h-screen ${surfaceLowest} flex flex-col items-center justify-center gap-12 px-6 py-12 text-[#e5e1e4] selection:bg-white selection:text-black`}
     >
       <div className="flex flex-col items-center gap-2">
         <Image
@@ -61,7 +61,7 @@ export default function LoginPage() {
           height={48}
           priority
         />
-        <h1 className="text-2xl font-bold tracking-tighter text-white">
+        <h1 className="font-montserrat text-2xl font-bold tracking-tighter text-white">
           COREROUTER
         </h1>
       </div>
@@ -90,7 +90,7 @@ export default function LoginPage() {
                   placeholder="name@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-sm border border-zinc-200 bg-zinc-50 px-4 py-3 text-zinc-950 outline-none transition-all placeholder:text-zinc-300 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 font-poppins"
+                  className="w-full rounded-sm border border-zinc-200 bg-zinc-50 px-4 py-3 text-zinc-950 outline-none transition-all placeholder:text-zinc-300 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950"
                 />
               </div>
               {error ? (
@@ -160,7 +160,7 @@ export default function LoginPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-sm border border-zinc-200 bg-zinc-50 px-4 py-3 pr-12 text-zinc-950 outline-none transition-all focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 font-poppins"
+                    className="w-full rounded-sm border border-zinc-200 bg-zinc-50 px-4 py-3 pr-12 text-zinc-950 outline-none transition-all focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950"
                   />
                   <button
                     type="button"
@@ -197,11 +197,7 @@ export default function LoginPage() {
         )}
       </div>
 
-      <footer className="text-center">
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-600">
-          Industrial Strength AI Routing · CoreRouter System v4.0
-        </p>
-      </footer>
+
     </div>
   );
 }

@@ -116,9 +116,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div
-      className="flex min-h-screen flex-col items-center justify-center gap-12 bg-[#0e0e10] px-6 py-12 text-[#e5e1e4] selection:bg-white selection:text-black "
-    >
+    <div className="flex min-h-screen flex-col items-center justify-center gap-12 bg-[#0e0e10] px-6 py-12 text-[#e5e1e4] selection:bg-white selection:text-black">
       <div className="flex flex-col items-center gap-2">
         <Image
           src="/corerouter-logo.png"
@@ -342,11 +340,7 @@ export default function RegisterPage() {
         ) : null}
       </div>
 
-      <footer className="text-center">
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-600">
-          Industrial Strength AI Routing · CoreRouter System v4.0
-        </p>
-      </footer>
+
     </div>
   );
 }
