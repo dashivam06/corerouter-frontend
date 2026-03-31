@@ -72,12 +72,30 @@ export default function AdminTasksPage() {
   );
 
   const counts = useMemo(() => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const pastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const thisMonthTotal = list.filter(
+      (t) => new Date(t.created_at).getTime() >= monthStart.getTime()
+    ).length;
+    const pastMonthTotal = list.filter((t) => {
+      const ts = new Date(t.created_at).getTime();
+      return ts >= pastMonthStart.getTime() && ts < monthStart.getTime();
+    }).length;
+
+    const totalDeltaPercent =
+      pastMonthTotal > 0
+        ? ((thisMonthTotal - pastMonthTotal) / pastMonthTotal) * 100
+        : 0;
+
     return {
       total: list.length,
       completed: list.filter((t) => t.status === "COMPLETED").length,
       failed: list.filter((t) => t.status === "FAILED").length,
       processing: list.filter((t) => t.status === "PROCESSING").length,
       queued: list.filter((t) => t.status === "QUEUED").length,
+      totalDeltaPercent,
     };
   }, [list]);
 
@@ -109,11 +127,37 @@ export default function AdminTasksPage() {
       />
 
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <AdminStatCard label="Total" value={counts.total} />
-        <AdminStatCard label="Completed" value={counts.completed} />
-        <AdminStatCard label="Failed" value={counts.failed} />
-        <AdminStatCard label="Processing" value={counts.processing} />
-        <AdminStatCard label="Queued" value={counts.queued} />
+        <div className="rounded-2xl bg-zinc-950 p-5 text-white">
+          <p className="mb-1 text-xs text-zinc-400">Total tasks</p>
+          <p className="text-2xl font-semibold">{counts.total}</p>
+          <p className={`mt-1 text-xs ${counts.totalDeltaPercent >= 0 ? "text-green-400" : "text-red-400"}`}>
+            {counts.totalDeltaPercent >= 0 ? "↑" : "↓"} {Math.abs(counts.totalDeltaPercent).toFixed(1)}% vs past month
+          </p>
+        </div>
+        <AdminStatCard
+          label="Completed"
+          value={counts.completed}
+          className="border-emerald-200 bg-emerald-50"
+          valueClassName="text-emerald-700"
+        />
+        <AdminStatCard
+          label="Failed"
+          value={counts.failed}
+          className="border-rose-200 bg-rose-50"
+          valueClassName="text-rose-700"
+        />
+        <AdminStatCard
+          label="Processing"
+          value={counts.processing}
+          className="border-amber-200 bg-amber-50"
+          valueClassName="text-amber-700"
+        />
+        <AdminStatCard
+          label="Queued"
+          value={counts.queued}
+          className="border-sky-200 bg-sky-50"
+          valueClassName="text-sky-700"
+        />
       </div>
 
       <div className="mb-5 grid grid-cols-1 gap-5">
