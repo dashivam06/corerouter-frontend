@@ -113,8 +113,10 @@ export default function AdminModelsPage() {
         </p>
       </div>
 
+      <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <div className="xl:col-span-2">
       {/* Stat cards section */}
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <AdminStatCard
           label="Total models"
           value={list.length}
@@ -131,15 +133,10 @@ export default function AdminModelsPage() {
           label="Providers"
           value={new Set(list.map(m => m.provider)).size}
         />
-        <AdminStatCard
-          label="With billing config"
-          value={list.filter(m => m.metadata?.billing).length}
-        />
       </div>
 
-      {/* Provider + analytics section */}
-      <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-      <div className="rounded-2xl border border-zinc-200 bg-white p-5 xl:col-span-2">
+      {/* Provider section */}
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5">
         <div className="mb-4 flex items-center justify-between">
           <p className="text-sm font-medium text-zinc-900">Providers</p>
           {isSelectingProviders && (
@@ -436,7 +433,9 @@ export default function AdminModelsPage() {
           </Dialog>
         </div>
       </div>
-      <div className="rounded-2xl border border-zinc-200 bg-white p-5 xl:col-span-1">
+      </div>
+
+      <div className="self-start rounded-2xl border border-zinc-200 bg-white p-5 xl:col-span-1">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-sm font-medium text-zinc-900">Model Type Mix</p>
           <span className="rounded-md bg-zinc-100 px-2 py-1 text-[11px] text-zinc-600">

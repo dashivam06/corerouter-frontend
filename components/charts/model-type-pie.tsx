@@ -14,8 +14,13 @@ export function ModelTypePie({
 }: {
   data: { name: string; value: number; type: string }[];
 }) {
+  const typeCount = data.length;
+  const chartHeight = typeCount <= 2 ? 230 : 190;
+  const innerRadius = typeCount <= 2 ? 62 : 50;
+  const outerRadius = typeCount <= 2 ? 92 : 76;
+
   return (
-    <ResponsiveContainer width="100%" height={150}>
+    <ResponsiveContainer width="100%" height={chartHeight}>
       <PieChart>
         <Pie
           data={data}
@@ -23,8 +28,8 @@ export function ModelTypePie({
           nameKey="name"
           cx="50%"
           cy="50%"
-          innerRadius={42}
-          outerRadius={62}
+          innerRadius={innerRadius}
+          outerRadius={outerRadius}
           paddingAngle={2}
           stroke="none"
         >
@@ -43,20 +48,21 @@ export function ModelTypePie({
 export function ModelTypePieLegend({
   data,
 }: {
-  data: { name: string; value: number; type: string }[];
+  data: { name: string; value: number; type: string; count?: number }[];
 }) {
   return (
-    <div className="flex flex-wrap justify-center gap-3 px-2">
+    <div className="flex flex-wrap justify-start gap-2 px-1">
       {data.map((s) => (
         <span
           key={s.type}
-          className="flex items-center gap-1.5 text-xs text-zinc-500"
+          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-600"
         >
           <span
             className="size-2.5 rounded-sm"
             style={{ background: COLORS[s.type] ?? "#a1a1aa" }}
           />
-          {s.name} ({s.value}%)
+          <span>{s.name}</span>
+          <span className="rounded-full bg-white px-1.5 py-0.5 text-[11px] text-zinc-500">{s.count ?? s.value}</span>
         </span>
       ))}
     </div>
