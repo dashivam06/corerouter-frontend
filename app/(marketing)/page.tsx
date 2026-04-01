@@ -96,11 +96,11 @@ export default async function LandingPage() {
                   <span className="text-zinc-700">requests with precision</span>
                 </h1>
 
-                <p className="mt-6 text-lg leading-relaxed text-zinc-600">
+                <p className="font-montserrat  mt-6 text-md leading-relaxed text-zinc-600">
                   Access multiple AI models through one unified API. Pay only for what you use with transparent token-based billing powered by eSewa.
                 </p>
 
-                <div className="mt-10 flex flex-wrap gap-4">
+                <div className="mt-10 font-montserrat  flex flex-wrap gap-4">
                   <Link
                     href="/register"
                     className="inline-flex items-center gap-2 rounded-lg bg-zinc-950 px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-zinc-950/30"
@@ -115,75 +115,33 @@ export default async function LandingPage() {
                   </Link>
                 </div>
 
-                <p className="mt-8 text-xs font-medium uppercase tracking-widest text-zinc-500">
+                {/* <p className="mt-8 text-xs font-medium uppercase tracking-widest text-zinc-500">
                   Trusted by AI developers
-                </p>
+                </p> */}
               </div>
 
               {/* Right Visual */}
-              <div className="relative hidden lg:block">
-                <div className="absolute inset-0">
-                  <div className="absolute right-0 top-0 h-80 w-80 rounded-full bg-gradient-to-br from-zinc-100 to-transparent opacity-60 blur-3xl" />
-                  <div className="absolute bottom-10 -left-20 h-80 w-80 rounded-full bg-gradient-to-t from-zinc-100 to-transparent opacity-60 blur-3xl" />
+              <div className="relative">
+                <div className="mb-4">
+                  <h2 className="font-montserrat text-2xl font-bold text-zinc-950">
+                    Get started in seconds
+                  </h2>
+                  <p className="mt-2 text-xs text-zinc-600 font-montserrat">
+                    Sample code. Use model docs for the exact curl command.
+                  </p>
                 </div>
-                <div className="relative h-96 rounded-2xl border border-zinc-200 bg-gradient-to-br from-white to-zinc-50 p-8 flex flex-col items-center justify-center">
-                  <div className="space-y-4 text-center">
-                    <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-zinc-100">
-                      <Code2 className="h-6 w-6 text-zinc-950" />
+                <div className="overflow-hidden rounded-2xl border border-zinc-700">
+                  <div className="flex items-center gap-3 bg-zinc-800 px-6 py-3">
+                    <div className="flex gap-2">
+                      <div className="h-3 w-3 rounded-full bg-red-500" />
+                      <div className="h-3 w-3 rounded-full bg-yellow-500" />
+                      <div className="h-3 w-3 rounded-full bg-green-500" />
                     </div>
-                    <div>
-                      <p className="text-sm font-semibold text-zinc-900">Simple Integration</p>
-                      <p className="text-xs text-zinc-500 mt-1">REST API · SDKs · Webhooks</p>
-                    </div>
+                    <p className="ml-4 text-xs text-zinc-400">Terminal</p>
                   </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Curl Example Section */}
-        <section className="bg-zinc-950 px-6 py-20 sm:py-32">
-          <div className="mx-auto max-w-6xl">
-            <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
-              {/* Left Content */}
-              <div>
-                <h2 className="font-montserrat text-4xl font-bold text-white">
-                  Get started in seconds
-                </h2>
-                <p className="mt-4 text-lg leading-relaxed text-zinc-400">
-                  Simple REST API with clear documentation. Try it out with a single curl command.
-                </p>
-                <ul className="mt-8 space-y-3">
-                  {[
-                    "No authentication required for testing",
-                    "Real-time response tracking",
-                    "Automatic failover to backup models"
-                  ].map((item, i) => (
-                    <li key={i} className="flex items-start gap-3">
-                      <Check className="h-5 w-5 text-green-400 flex-shrink-0 mt-0.5" />
-                      <span className="text-zinc-300">{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* Right Code Block - Mac Terminal */}
-              <div className="rounded-2xl border border-zinc-700 overflow-hidden">
-                {/* Mac Terminal Header with Lights */}
-                <div className="bg-zinc-800 px-6 py-3 flex items-center gap-3">
-                  <div className="flex gap-2">
-                    <div className="h-3 w-3 rounded-full bg-red-500" />
-                    <div className="h-3 w-3 rounded-full bg-yellow-500" />
-                    <div className="h-3 w-3 rounded-full bg-green-500" />
-                  </div>
-                  <p className="text-xs text-zinc-400 ml-4">Terminal</p>
-                </div>
-                
-                {/* Terminal Body - Curl Command Only */}
-                <div className="bg-black p-6">
-                  <pre className="text-sm leading-relaxed overflow-x-auto">
-                    <code className="text-zinc-300 font-mono">
+                  <div className="bg-black p-6">
+                    <pre className="overflow-x-auto text-sm leading-relaxed">
+                      <code className="font-mono text-zinc-300">
 {`$ curl https://api.corerouter.com/v1/complete \\
   -H "Authorization: Bearer pk_test_abc123..." \\
   -H "Content-Type: application/json" \\
@@ -194,8 +152,9 @@ export default async function LandingPage() {
       "content": "Explain quantum computing"
     }]
   }'`}
-                    </code>
-                  </pre>
+                      </code>
+                    </pre>
+                  </div>
                 </div>
               </div>
             </div>
@@ -255,16 +214,14 @@ export default async function LandingPage() {
                   Create Multiple API Keys
                 </h2>
                 <p className="text-lg leading-relaxed text-zinc-600 mb-8">
-                  Organize your integrations with separate API keys for different model types. Each key has independent rate limits, usage tracking, and access controls.
+                  Organize your integrations with separate API keys for teams, projects, or environments. Any API key can be used with any model available in CoreRouter.
                 </p>
                 <ul className="space-y-3">
                   {[
-                    "Separate keys for LLM, OCR, Vision models",
+                    "Any key works with any model in the system",
                     "Set daily request limits per key",
                     "Configure monthly usage quotas",
-                    "Easy rotation and revocation",
-                    "Cost allocation by model type",
-                    "LLM keys take priority with automatic fallback"
+                    "Easy rotation and revocation"
                   ].map((item, i) => (
                     <li key={i} className="flex items-start gap-3">
                       <Check className="h-5 w-5 text-zinc-950 flex-shrink-0 mt-0.5" />
