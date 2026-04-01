@@ -10,7 +10,7 @@ import { useAuthStore } from "@/stores/auth-store";
 
 const surfaceLowest = "bg-[#0e0e10]";
 const labelClass =
-  "text-[10px] font-bold uppercase tracking-widest text-zinc-400";
+  "text-[10px] font-bold uppercase tracking-widest text-zinc-400 font-montserrat ";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -51,7 +51,7 @@ export default function LoginPage() {
 
   return (
     <div
-      className={`min-h-screen ${surfaceLowest} flex flex-col items-center justify-center gap-12 px-6 py-12 text-[#e5e1e4] selection:bg-white selection:text-black`}
+      className={`min-h-screen ${surfaceLowest} flex flex-col items-center justify-center gap-12 px-6 py-12 text-[#e5e1e4] selection:bg-white selection:text-black font-montserrat `}
     >
       <div className="flex flex-col items-center gap-2">
         <Image
@@ -69,17 +69,17 @@ export default function LoginPage() {
       <div className="w-full max-w-[400px] space-y-8">
         {step === "email" ? (
           <section className="rounded-sm border border-zinc-200 bg-white p-8">
-            <div className="mb-8">
+            <div className="mb-3">
               <h2 className="text-xl font-semibold tracking-tight text-zinc-950">
                 Sign in
               </h2>
-              <p className="mt-1 text-sm text-zinc-500">
+              <p className="mt-1 font-montserrat  text-sm text-zinc-500">
                 Enter your email to access your infrastructure.
               </p>
             </div>
             <form className="space-y-4" onSubmit={onContinueEmail}>
               <div className="space-y-1.5">
-                <label className={labelClass} htmlFor="email">
+                <label className={labelClass } htmlFor="email">
                   Email Address
                 </label>
                 <input
@@ -90,7 +90,7 @@ export default function LoginPage() {
                   placeholder="name@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-sm border border-zinc-200 bg-zinc-50 px-4 py-3 text-zinc-950 outline-none transition-all placeholder:text-zinc-300 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950"
+                  className="w-full rounded-sm border border-zinc-200 bg-zinc-50 px-4 py-3 text-zinc-950 outline-none transition-all placeholder:text-zinc-300 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 font-montserrat "
                 />
               </div>
               {error ? (
@@ -114,10 +114,10 @@ export default function LoginPage() {
               </button>
             </form>
             <div className="mt-6 flex items-center justify-between border-t border-zinc-100 pt-6">
-              <span className="text-xs text-zinc-400">No account?</span>
+              <span className="text-xs text-zinc-400 font-montserrat ">No account?</span>
               <Link
                 href="/register"
-                className="text-xs font-semibold text-zinc-950 hover:underline"
+                className="text-xs font-semibold text-zinc-950 hover:underline font-montserrat "
               >
                 Create one now
               </Link>

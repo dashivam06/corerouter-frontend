@@ -21,10 +21,16 @@ const labelDark =
 const otpBox =
   "h-14 w-12 rounded-sm border border-[#474747] bg-[#1c1b1d] text-center text-lg text-white outline-none focus:border-white font-poppins";
 
-function StepDots({ step }: { step: Step }) {
+function StepDots({
+  step,
+  compact = false,
+}: {
+  step: Step;
+  compact?: boolean;
+}) {
   const idx = step === "email" ? 0 : step === "otp" ? 1 : 2;
   return (
-    <div className="mb-10 flex items-center justify-center gap-2">
+    <div className={`${compact ? "mb-5" : "mb-10"} flex items-center justify-center gap-2`}>
       {[0, 1, 2].map((i) => (
         <div
           key={i}
@@ -47,15 +53,26 @@ export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
+  const [subscribeMarketing, setSubscribeMarketing] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resendSecs, setResendSecs] = useState(0);
+  const profileImageInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (resendSecs <= 0) return;
     const t = setInterval(() => setResendSecs((s) => s - 1), 1000);
     return () => clearInterval(t);
   }, [resendSecs]);
+
+  useEffect(() => {
+    return () => {
+      if (profileImagePreview) {
+        URL.revokeObjectURL(profileImagePreview);
+      }
+    };
+  }, [profileImagePreview]);
 
   async function onEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -115,8 +132,19 @@ export default function RegisterPage() {
     if (d && i < 5) otpRefs.current[i + 1]?.focus();
   }
 
+  function onProfileImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+    setError(null);
+    setProfileImagePreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+  }
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-12 bg-[#0e0e10] px-6 py-12 text-[#e5e1e4] selection:bg-white selection:text-black">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-12 bg-[#0e0e10] px-6 py-12 text-[#e5e1e4] selection:bg-white selection:text-black font-montserrat ">
       <div className="flex flex-col items-center gap-2">
         <Image
           src="/corerouter-logo.png"
@@ -130,10 +158,12 @@ export default function RegisterPage() {
         </h1>
       </div>
 
-      <div className="w-full max-w-[400px]">
+      <div
+        className={`w-full ${step === "profile" ? "max-w-[560px]" : "max-w-[400px]"}`}
+      >
         {step === "email" ? (
           <section className="rounded-sm border border-zinc-200 bg-white p-8">
-            <div className="mb-8">
+            <div className="mb-4">
               <h2 className="text-xl font-semibold tracking-tight text-zinc-950">
                 Create account
               </h2>
@@ -186,7 +216,7 @@ export default function RegisterPage() {
         ) : null}
 
         {step === "otp" ? (
-          <section className="rounded-sm border border-[#474747]/30 bg-[#131315] p-8">
+          <section className="overflow-hidden rounded-sm border border-[#474747]/30 bg-[#131315] p-8">
             <StepDots step="otp" />
             <div className="mb-8 text-center">
               <h2 className="text-xl font-semibold tracking-tight text-white">
@@ -256,8 +286,8 @@ export default function RegisterPage() {
 
         {step === "profile" ? (
           <section className="rounded-sm border border-[#474747]/30 bg-[#131315] p-8">
-            <StepDots step="profile" />
-            <div className="mb-8">
+            <StepDots step="profile" compact />
+            <div className="mb-5">
               <h2 className="text-xl font-semibold tracking-tight text-white">
                 Complete Profile
               </h2>
@@ -266,18 +296,64 @@ export default function RegisterPage() {
               </p>
             </div>
             <form className="space-y-5" onSubmit={onComplete}>
-              <div className="space-y-1.5">
-                <label className={labelDark} htmlFor="full-name">
-                  Full Name
-                </label>
-                <input
-                  id="full-name"
-                  required
-                  placeholder="John Architect"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="w-full rounded-sm border border-[#474747] bg-[#1c1b1d] px-4 py-3 text-white outline-none placeholder:text-zinc-600 focus:border-white focus:ring-0 font-poppins"
-                />
+              <div className="grid grid-cols-[minmax(0,1fr)_140px] gap-x-6 gap-y-4">
+                <div className="space-y-1.5">
+                  <label className={labelDark} htmlFor="verified-email">
+                    Verified Email
+                  </label>
+                  <div
+                    id="verified-email"
+                    aria-disabled="true"
+                    className="w-full cursor-not-allowed rounded-sm border border-[#474747] bg-[#18181a] px-4 py-3 opacity-80"
+                  >
+                    <p className="truncate font-poppins text-zinc-400">{email}</p>
+                  </div>
+                </div>
+                <div className="row-span-2 flex shrink-0 flex-col items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => profileImageInputRef.current?.click()}
+                    className="relative rounded-full"
+                    aria-label="Upload profile image"
+                  >
+                    <img
+                      src={
+                        profileImagePreview ||
+                        `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(
+                          (fullName || email || "User").trim()
+                        )}`
+                      }
+                      alt="Profile preview"
+                      className="size-24 shrink-0 rounded-full border border-[#474747] bg-[#1c1b1d] object-cover"
+                    />
+                    <span className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full border border-[#1c1b1d] bg-white text-xs font-bold text-zinc-900">
+                      +
+                    </span>
+                  </button>
+                  <input
+                    ref={profileImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={onProfileImageChange}
+                  />
+                  <p className="text-[10px] uppercase tracking-widest text-zinc-500">
+                    Profile image
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className={labelDark} htmlFor="full-name">
+                    Full Name
+                  </label>
+                  <input
+                    id="full-name"
+                    required
+                    placeholder="John Architect"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className="w-full rounded-sm border border-[#474747] bg-[#1c1b1d] px-4 py-3 text-white outline-none placeholder:text-zinc-600 focus:border-white focus:ring-0 font-poppins"
+                  />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <label className={labelDark} htmlFor="pw">
@@ -308,6 +384,17 @@ export default function RegisterPage() {
                   className="w-full rounded-sm border border-[#474747] bg-[#1c1b1d] px-4 py-3 text-white outline-none placeholder:text-zinc-600 focus:border-white focus:ring-0 font-poppins"
                 />
               </div>
+              <label className="flex items-start gap-3 rounded-sm border border-[#474747] bg-[#1c1b1d] p-3">
+                <input
+                  type="checkbox"
+                  checked={subscribeMarketing}
+                  onChange={(e) => setSubscribeMarketing(e.target.checked)}
+                  className="mt-0.5 size-4 rounded-sm border border-zinc-500 bg-transparent accent-white"
+                />
+                <span className="text-xs leading-relaxed text-zinc-300">
+                  Subscribe to marketing and product information emails.
+                </span>
+              </label>
               {error ? (
                 <p className="text-sm text-red-400" role="alert">
                   {error}
@@ -315,7 +402,7 @@ export default function RegisterPage() {
               ) : null}
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !subscribeMarketing}
                 className="mt-4 w-full rounded-sm bg-white py-3 font-semibold text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-60"
               >
                 {loading ? (
