@@ -165,7 +165,10 @@ export default function AdminCreateModelPage() {
 
             <label className="block">
               <div className="mb-1 text-sm font-medium text-zinc-900">Provider</div>
-              <Select value={provider} onValueChange={setProvider}>
+              <Select
+                value={provider || null}
+                onValueChange={(value) => setProvider(value ?? "")}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select a provider" />
                 </SelectTrigger>
