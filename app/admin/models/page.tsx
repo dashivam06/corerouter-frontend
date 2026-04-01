@@ -295,8 +295,8 @@ export default function AdminModelsPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="provider-country" className="text-sm font-semibold text-zinc-900 font-[Montserrat]">Country</Label>
-                    <Select value={providerCountry} onValueChange={(value) => {
-                      setProviderCountry(value);
+                    <Select value={providerCountry || null} onValueChange={(value) => {
+                      setProviderCountry(value ?? "");
                       setCountrySelectOpen(false);
                     }} open={countrySelectOpen} onOpenChange={setCountrySelectOpen}>
                       <SelectTrigger className="w-full rounded-lg border-zinc-200 font-[Montserrat]">
