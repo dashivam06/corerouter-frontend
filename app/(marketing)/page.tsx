@@ -40,24 +40,24 @@ export default async function LandingPage() {
   const models = await topModels();
 
   return (
-    <div className="min-h-screen bg-white text-zinc-950">
+    <div className="min-h-screen bg-white text-zinc-950 font-montserrat">
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
-            <img 
-              src="/corerouter-logo.png" 
-              alt="CoreRouter" 
+            <img
+              src="/corerouter-logo.png"
+              alt="CoreRouter"
               className="h-8 w-8 object-contain"
             />
             <span className="font-montserrat text-[15px] font-bold tracking-[0.08em] text-zinc-950">
               COREROUTER
             </span>
           </Link>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-8">
             <Link
               href="/models"
-              className="font-montserrat text-sm font-semibold text-zinc-600 transition-colors hover:text-zinc-950"
+              className="font-montserrat text-sm font-semibold text-zinc-600 transition-all hover:-translate-y-0.5 hover:text-zinc-950"
             >
               Models
             </Link>
@@ -146,7 +146,7 @@ export default async function LandingPage() {
   -H "Authorization: Bearer pk_test_abc123..." \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "gpt-4",
+    "model": "mistral-7b",
     "messages": [{
       "role": "user",
       "content": "Explain quantum computing"
@@ -170,9 +170,9 @@ export default async function LandingPage() {
                 <div className="rounded-lg border border-zinc-950 bg-zinc-50 p-5 shadow-sm">
                   <div className="grid gap-4 sm:grid-cols-[1fr_180px] sm:items-start">
                     <div>
-                      <p className="mb-2 text-xs font-mono font-semibold text-zinc-700">pk_test_llm_abc123...</p>
-                      <p className="text-sm font-semibold text-zinc-950">Primary LLM Key</p>
-                      <p className="mt-1 text-xs text-zinc-700">gpt-4 · claude-3 · llama-70b</p>
+                      <p className="mb-2 text-xs font-semibold text-zinc-700">pk_test_project_a123...</p>
+                      <p className="text-sm font-semibold text-zinc-950">API Key A</p>
+                      <p className="mt-1 text-xs text-zinc-700">Can be used with any model in CoreRouter</p>
                     </div>
                     <div className="text-[11px] text-zinc-600 sm:text-right">
                       <p>Daily: 50 / 120</p>
@@ -183,9 +183,9 @@ export default async function LandingPage() {
                 <div className="rounded-lg border border-zinc-200 bg-white p-5">
                   <div className="grid gap-4 sm:grid-cols-[1fr_180px] sm:items-start">
                     <div>
-                      <p className="mb-2 text-xs font-mono font-semibold text-zinc-600">pk_test_ocr_456def...</p>
-                      <p className="text-sm font-semibold text-zinc-950">OCR Processing Key</p>
-                      <p className="mt-1 text-xs text-zinc-600">tesseract · paddleocr</p>
+                      <p className="mb-2 text-xs font-semibold text-zinc-600">pk_test_project_b456...</p>
+                      <p className="text-sm font-semibold text-zinc-950">API Key B</p>
+                      <p className="mt-1 text-xs text-zinc-600">Can be used with any model in CoreRouter</p>
                     </div>
                     <div className="text-[11px] text-zinc-600 sm:text-right">
                       <p>Daily: 28 / 80</p>
@@ -196,9 +196,9 @@ export default async function LandingPage() {
                 <div className="rounded-lg border border-zinc-200 bg-white p-5">
                   <div className="grid gap-4 sm:grid-cols-[1fr_180px] sm:items-start">
                     <div>
-                      <p className="mb-2 text-xs font-mono font-semibold text-zinc-600">pk_test_vision_789ghi...</p>
-                      <p className="text-sm font-semibold text-zinc-950">Vision Models Key</p>
-                      <p className="mt-1 text-xs text-zinc-600">gpt-4v · claude-vision</p>
+                      <p className="mb-2 text-xs font-semibold text-zinc-600">pk_test_project_c789...</p>
+                      <p className="text-sm font-semibold text-zinc-950">API Key C</p>
+                      <p className="mt-1 text-xs text-zinc-600">Can be used with any model in CoreRouter</p>
                     </div>
                     <div className="text-[11px] text-zinc-600 sm:text-right">
                       <p>Daily: 16 / 60</p>
@@ -408,10 +408,40 @@ export default async function LandingPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-zinc-200 bg-zinc-50 py-8">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 text-xs text-zinc-600">
-          <p>© 2026 CoreRouter · All rights reserved</p>
-          <p>A product of Fleebug.com</p>
+      <footer className="border-t border-zinc-200 bg-zinc-50 py-10">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-5 px-6 text-center sm:grid-cols-3 sm:items-center sm:text-left">
+          <div>
+            <div className="inline-flex items-center gap-2">
+              <img src="/corerouter-logo.png" alt="CoreRouter" className="h-6 w-6 object-contain" />
+              <span className="text-sm font-semibold text-zinc-900">CoreRouter</span>
+            </div>
+            <p className="mt-3 text-xs text-zinc-600">
+              © 2026 CoreRouter. All rights reserved.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-zinc-600">
+            <a href="tel:+9779800000000" className="hover:text-zinc-900">
+              +977 9828603447
+            </a>
+            <a href="mailto:info@corerouter.me" className="hover:text-zinc-900">
+              thakurshivam202063@gmail.com
+            </a>
+          </div>
+
+          <div className="flex justify-center sm:justify-end">
+            <a
+              href="https://fleebug.com/"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 text-xs text-zinc-600 hover:text-zinc-900"
+            >
+              <span className="font-monserract text-[11px]   tracking-[0.12em] text-zinc-700 font-bold">
+                Powered by
+              </span>
+              <img src="/fleebug.svg" alt="Fleebug" className="h-10 w-auto" />
+            </a>
+          </div>
         </div>
       </footer>
     </div>
