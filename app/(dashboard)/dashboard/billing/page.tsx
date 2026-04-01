@@ -135,7 +135,9 @@ export default function BillingPage() {
             <option value="6m">6 months</option>
           </select>
         </div>
-        <BalanceLineChart data={balanceSeries} />
+        <div className="min-h-[240px] w-full">
+          <BalanceLineChart data={balanceSeries} />
+        </div>
       </div>
 
       <div className="mt-8">

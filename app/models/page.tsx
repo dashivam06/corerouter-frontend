@@ -152,83 +152,107 @@ export default function ModelsCatalogPage() {
         </div>
       </section>
 
-      <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-              Total models
-            </span>
-            <span className="rounded-md bg-zinc-900 px-2 py-0.5 text-xs font-semibold text-white">
-              {filtered.length}
-            </span>
+      <div className="mt-6 flex gap-6">
+        {/* Left Sidebar */}
+        <aside className="w-64 flex-shrink-0">
+          <div className="sticky top-20 space-y-6">
+            {/* Search */}
+            <div>
+              <label className="mb-3 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Search
+              </label>
+              <input
+                placeholder="Search models..."
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="w-full rounded-lg border border-zinc-200 px-3 py-2.5 text-sm outline-none transition-colors focus:border-zinc-400"
+              />
+            </div>
+
+            {/* Model Type Filter */}
+            <div>
+              <label className="mb-3 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Model Type
+              </label>
+              <div className="space-y-2">
+                {(
+                  [
+                    ["ALL", "All Models"],
+                    ["LLM", "LLM"],
+                    ["OCR", "OCR"],
+                    ["OTHER", "Other"],
+                  ] as const
+                ).map(([k, label]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setType(k)}
+                    className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-all ${
+                      type === k
+                        ? "bg-zinc-950 text-white font-medium"
+                        : "border border-zinc-200 text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Sort By */}
+            <div>
+              <label className="mb-3 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Sort By
+              </label>
+              <select
+                value={sortBy}
+                onChange={(e) =>
+                  setSortBy(
+                    e.target.value as
+                      | "NAME_ASC"
+                      | "NAME_DESC"
+                      | "PRICE_ASC"
+                      | "PRICE_DESC"
+                  )
+                }
+                className="w-full rounded-lg border border-zinc-200 px-3 py-2.5 text-sm font-medium text-zinc-700 outline-none transition-colors focus:border-zinc-400"
+                aria-label="Sort models"
+              >
+                <option value="NAME_ASC">Name: A to Z</option>
+                <option value="NAME_DESC">Name: Z to A</option>
+                <option value="PRICE_ASC">Pricing: Low to High</option>
+                <option value="PRICE_DESC">Pricing: High to Low</option>
+              </select>
+            </div>
+
+            {/* Results Count */}
+            <div className="rounded-lg bg-zinc-100 px-3 py-2">
+              <p className="text-xs text-zinc-600">
+                <span className="font-semibold text-zinc-900">{filtered.length}</span> model{filtered.length !== 1 ? "s" : ""} found
+              </p>
+            </div>
           </div>
-          {(
-            [
-              ["ALL", "All"],
-              ["LLM", "LLM"],
-              ["OCR", "OCR"],
-              ["OTHER", "Other"],
-            ] as const
-          ).map(([k, label]) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setType(k)}
-              className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
-                type === k
-                  ? "bg-zinc-950 text-white"
-                  : "border border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-          <div className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3">
-            <span className="text-xs font-medium text-zinc-500">Sort</span>
-            <select
-              value={sortBy}
-              onChange={(e) =>
-                setSortBy(
-                  e.target.value as
-                    | "NAME_ASC"
-                    | "NAME_DESC"
-                    | "PRICE_ASC"
-                    | "PRICE_DESC"
-                )
-              }
-              className="h-8 border-0 bg-transparent pr-1 text-sm font-medium text-zinc-700 outline-none"
-              aria-label="Sort models"
-            >
-              <option value="NAME_ASC">Name: A to Z</option>
-              <option value="NAME_DESC">Name: Z to A</option>
-              <option value="PRICE_ASC">Pricing: Low to High</option>
-              <option value="PRICE_DESC">Pricing: High to Low</option>
-            </select>
+        </aside>
+
+        {/* Main Content */}
+        <div className="flex-1 min-w-0">
+          <div className="space-y-4">
+            {filtered.map((m) => (
+              <ModelCard
+                key={m.model_id}
+                model={m}
+                price={prices[m.model_id] ?? "…"}
+              />
+            ))}
           </div>
-          <input
-            placeholder="Search models..."
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="h-10 w-full rounded-xl border border-zinc-200 px-3 text-sm outline-none transition-colors focus:border-zinc-400 sm:ml-auto sm:w-72"
-          />
+
+          {!filtered.length ? (
+            <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-10 text-center text-sm text-zinc-500">
+              No models match your filters.
+            </div>
+          ) : null}
         </div>
       </div>
-
-      <div className="mt-6 space-y-4">
-        {filtered.map((m) => (
-          <ModelCard
-            key={m.model_id}
-            model={m}
-            price={prices[m.model_id] ?? "…"}
-          />
-        ))}
-      </div>
-
-      {!filtered.length ? (
-        <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-10 text-center text-sm text-zinc-500">
-          No models match your filters.
-        </div>
-      ) : null}
     </>
   );
 }

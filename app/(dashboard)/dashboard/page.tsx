@@ -135,13 +135,17 @@ export default function DashboardHomePage() {
               <option value="year">Year</option>
             </select>
           </div>
-          <SpendLineChart data={chartData} />
+          <div className="min-h-[240px] w-full">
+            <SpendLineChart data={chartData} />
+          </div>
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-white p-5">
           <p className="mb-1 text-[13px] font-medium text-zinc-500">
             Usage by model type
           </p>
-          <ModelTypePie data={pieData} />
+          <div className="min-h-[240px] w-full flex items-center justify-center">
+            <ModelTypePie data={pieData} />
+          </div>
           <ModelTypePieLegend data={pieData} />
         </div>
       </div>

@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { fetchBillingForModel, fetchModelDocs, fetchModels } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, ArrowLeft } from "lucide-react";
 
 export default function ModelDetailPage({
   params,
@@ -67,6 +67,14 @@ export default function ModelDetailPage({
 
   return (
     <div className="w-full">
+      <Link 
+        href="/models" 
+        className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-950"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to all models
+      </Link>
+
       <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">

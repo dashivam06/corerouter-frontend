@@ -57,19 +57,19 @@ export default async function LandingPage() {
           <div className="flex items-center gap-4">
             <Link
               href="/models"
-              className="text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-950"
+              className="font-montserrat text-sm font-semibold text-zinc-600 transition-colors hover:text-zinc-950"
             >
               Models
             </Link>
             <Link
               href="/login"
-              className="text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-950"
+              className="font-montserrat text-sm font-semibold text-zinc-600 transition-colors hover:text-zinc-950"
             >
               Sign in
             </Link>
             <Link
               href="/register"
-              className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-zinc-950/20"
+              className="font-montserrat rounded-lg bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-zinc-950/20"
             >
               Get started
             </Link>
@@ -79,53 +79,209 @@ export default async function LandingPage() {
 
       <main>
         {/* Hero Section */}
-        <section className="relative overflow-hidden px-6 py-20 sm:py-32">
-          <div className="absolute inset-0 -z-10">
-            <div className="absolute right-0 top-0 h-96 w-96 rounded-full bg-gradient-to-br from-zinc-100 to-transparent opacity-60 blur-3xl" />
-            <div className="absolute bottom-0 left-0 h-96 w-96 rounded-full bg-gradient-to-t from-zinc-100 to-transparent opacity-60 blur-3xl" />
-          </div>
+        <section className="relative overflow-hidden px-6 pb-20 pt-10 sm:pb-28 sm:pt-14">
+          <div className="mx-auto max-w-6xl">
+            <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
+              {/* Left Content */}
+              <div>
+                <div className="mb-6 inline-flex items-center rounded-full bg-zinc-100 px-4 py-2">
+                  <BarChart2 className="mr-2 h-4 w-4 text-zinc-700" />
+                  <span className="text-sm font-semibold text-zinc-900">
+                    Production-ready AI routing
+                  </span>
+                </div>
 
-          <div className="mx-auto max-w-4xl text-center">
-            <div className="mb-6 inline-flex items-center rounded-full bg-zinc-100 px-4 py-2">
-              <BarChart2 className="mr-2 h-4 w-4 text-zinc-700" />
-              <span className="text-sm font-semibold text-zinc-900">
-                Production-ready AI routing
-              </span>
+                <h1 className="font-montserrat text-5xl font-bold leading-tight sm:text-6xl text-zinc-950">
+                  Route your AI<br />
+                  <span className="text-zinc-700">requests with precision</span>
+                </h1>
+
+                <p className="mt-6 text-lg leading-relaxed text-zinc-600">
+                  Access multiple AI models through one unified API. Pay only for what you use with transparent token-based billing powered by eSewa.
+                </p>
+
+                <div className="mt-10 flex flex-wrap gap-4">
+                  <Link
+                    href="/register"
+                    className="inline-flex items-center gap-2 rounded-lg bg-zinc-950 px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-zinc-950/30"
+                  >
+                    Start building <ArrowRight className="h-4 w-4" />
+                  </Link>
+                  <Link
+                    href="/models"
+                    className="inline-flex items-center gap-2 rounded-lg border-2 border-zinc-300 bg-white px-6 py-3 text-sm font-semibold text-zinc-950 transition-all hover:border-zinc-400"
+                  >
+                    Explore models
+                  </Link>
+                </div>
+
+                <p className="mt-8 text-xs font-medium uppercase tracking-widest text-zinc-500">
+                  Trusted by AI developers
+                </p>
+              </div>
+
+              {/* Right Visual */}
+              <div className="relative hidden lg:block">
+                <div className="absolute inset-0">
+                  <div className="absolute right-0 top-0 h-80 w-80 rounded-full bg-gradient-to-br from-zinc-100 to-transparent opacity-60 blur-3xl" />
+                  <div className="absolute bottom-10 -left-20 h-80 w-80 rounded-full bg-gradient-to-t from-zinc-100 to-transparent opacity-60 blur-3xl" />
+                </div>
+                <div className="relative h-96 rounded-2xl border border-zinc-200 bg-gradient-to-br from-white to-zinc-50 p-8 flex flex-col items-center justify-center">
+                  <div className="space-y-4 text-center">
+                    <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-zinc-100">
+                      <Code2 className="h-6 w-6 text-zinc-950" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-zinc-900">Simple Integration</p>
+                      <p className="text-xs text-zinc-500 mt-1">REST API · SDKs · Webhooks</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-
-            <h1 className="font-montserrat text-5xl font-bold leading-tight sm:text-6xl text-zinc-950">
-              Route your AI<br />
-              <span className="text-zinc-700">requests with precision</span>
-            </h1>
-
-            <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-zinc-600">
-              Access multiple AI models through one unified API. Pay only for what you use with transparent token-based billing powered by eSewa.
-            </p>
-
-            <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-              <Link
-                href="/register"
-                className="inline-flex items-center gap-2 rounded-lg bg-zinc-950 px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-zinc-950/30"
-              >
-                Start building <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                href="/models"
-                className="inline-flex items-center gap-2 rounded-lg border-2 border-zinc-300 bg-white px-6 py-3 text-sm font-semibold text-zinc-950 transition-all hover:border-zinc-400"
-              >
-                Explore models
-              </Link>
-            </div>
-
-            <p className="mt-8 text-xs font-medium uppercase tracking-widest text-zinc-500">
-              Trusted by AI developers
-            </p>
           </div>
         </section>
 
+        {/* Curl Example Section */}
+        <section className="bg-zinc-950 px-6 py-20 sm:py-32">
+          <div className="mx-auto max-w-6xl">
+            <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
+              {/* Left Content */}
+              <div>
+                <h2 className="font-montserrat text-4xl font-bold text-white">
+                  Get started in seconds
+                </h2>
+                <p className="mt-4 text-lg leading-relaxed text-zinc-400">
+                  Simple REST API with clear documentation. Try it out with a single curl command.
+                </p>
+                <ul className="mt-8 space-y-3">
+                  {[
+                    "No authentication required for testing",
+                    "Real-time response tracking",
+                    "Automatic failover to backup models"
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <Check className="h-5 w-5 text-green-400 flex-shrink-0 mt-0.5" />
+                      <span className="text-zinc-300">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Right Code Block - Mac Terminal */}
+              <div className="rounded-2xl border border-zinc-700 overflow-hidden">
+                {/* Mac Terminal Header with Lights */}
+                <div className="bg-zinc-800 px-6 py-3 flex items-center gap-3">
+                  <div className="flex gap-2">
+                    <div className="h-3 w-3 rounded-full bg-red-500" />
+                    <div className="h-3 w-3 rounded-full bg-yellow-500" />
+                    <div className="h-3 w-3 rounded-full bg-green-500" />
+                  </div>
+                  <p className="text-xs text-zinc-400 ml-4">Terminal</p>
+                </div>
+                
+                {/* Terminal Body - Curl Command Only */}
+                <div className="bg-black p-6">
+                  <pre className="text-sm leading-relaxed overflow-x-auto">
+                    <code className="text-zinc-300 font-mono">
+{`$ curl https://api.corerouter.com/v1/complete \\
+  -H "Authorization: Bearer pk_test_abc123..." \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-4",
+    "messages": [{
+      "role": "user",
+      "content": "Explain quantum computing"
+    }]
+  }'`}
+                    </code>
+                  </pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* API Keys Section */}
+        <section className="px-6 py-20 sm:py-32">
+          <div className="mx-auto max-w-6xl">
+            <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
+              {/* Left - API Key Examples */}
+              <div className="space-y-3">
+                <div className="rounded-lg border border-zinc-950 bg-zinc-50 p-5 shadow-sm">
+                  <div className="grid gap-4 sm:grid-cols-[1fr_180px] sm:items-start">
+                    <div>
+                      <p className="mb-2 text-xs font-mono font-semibold text-zinc-700">pk_test_llm_abc123...</p>
+                      <p className="text-sm font-semibold text-zinc-950">Primary LLM Key</p>
+                      <p className="mt-1 text-xs text-zinc-700">gpt-4 · claude-3 · llama-70b</p>
+                    </div>
+                    <div className="text-[11px] text-zinc-600 sm:text-right">
+                      <p>Daily: 50 / 120</p>
+                      <p>Monthly: 360 / 1000</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-zinc-200 bg-white p-5">
+                  <div className="grid gap-4 sm:grid-cols-[1fr_180px] sm:items-start">
+                    <div>
+                      <p className="mb-2 text-xs font-mono font-semibold text-zinc-600">pk_test_ocr_456def...</p>
+                      <p className="text-sm font-semibold text-zinc-950">OCR Processing Key</p>
+                      <p className="mt-1 text-xs text-zinc-600">tesseract · paddleocr</p>
+                    </div>
+                    <div className="text-[11px] text-zinc-600 sm:text-right">
+                      <p>Daily: 28 / 80</p>
+                      <p>Monthly: 190 / 700</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-zinc-200 bg-white p-5">
+                  <div className="grid gap-4 sm:grid-cols-[1fr_180px] sm:items-start">
+                    <div>
+                      <p className="mb-2 text-xs font-mono font-semibold text-zinc-600">pk_test_vision_789ghi...</p>
+                      <p className="text-sm font-semibold text-zinc-950">Vision Models Key</p>
+                      <p className="mt-1 text-xs text-zinc-600">gpt-4v · claude-vision</p>
+                    </div>
+                    <div className="text-[11px] text-zinc-600 sm:text-right">
+                      <p>Daily: 16 / 60</p>
+                      <p>Monthly: 120 / 500</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right - Features */}
+              <div>
+                <h2 className="font-montserrat text-4xl font-bold text-zinc-950 mb-4">
+                  Create Multiple API Keys
+                </h2>
+                <p className="text-lg leading-relaxed text-zinc-600 mb-8">
+                  Organize your integrations with separate API keys for different model types. Each key has independent rate limits, usage tracking, and access controls.
+                </p>
+                <ul className="space-y-3">
+                  {[
+                    "Separate keys for LLM, OCR, Vision models",
+                    "Set daily request limits per key",
+                    "Configure monthly usage quotas",
+                    "Easy rotation and revocation",
+                    "Cost allocation by model type",
+                    "LLM keys take priority with automatic fallback"
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <Check className="h-5 w-5 text-zinc-950 flex-shrink-0 mt-0.5" />
+                      <span className="text-zinc-700">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+
+
         {/* Features Section */}
-        <section className="mx-auto max-w-6xl px-6 py-20 sm:py-32">
-          <div className="mb-16 text-center">
+        <section className="mx-auto max-w-6xl px-6 pb-20 pt-10 sm:pb-28 sm:pt-14">
+          <div className="mb-16">
             <h2 className="font-montserrat text-4xl font-bold text-zinc-950">
               Features
             </h2>
@@ -191,7 +347,7 @@ export default async function LandingPage() {
         {/* Featured Models Section */}
         <section className="bg-zinc-50 px-6 py-20 sm:py-32">
           <div className="mx-auto max-w-6xl">
-            <div className="mb-16 text-center">
+            <div className="mb-16">
               <h2 className="font-montserrat text-4xl font-bold text-zinc-950">
                 Available Models
               </h2>
@@ -247,7 +403,7 @@ export default async function LandingPage() {
 
         {/* Pricing Section */}
         <section className="mx-auto max-w-6xl px-6 py-20 sm:py-32">
-          <div className="mb-16 text-center">
+          <div className="mb-16">
             <h2 className="font-montserrat text-4xl font-bold text-zinc-950">
               Transparent Pricing
             </h2>

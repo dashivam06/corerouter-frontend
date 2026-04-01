@@ -127,7 +127,9 @@ export default function UsagePage() {
             </span>
           ))}
         </div>
-        <UsageStackedBar data={barData} keys={unitKeys} />
+        <div className="min-h-[240px] w-full">
+          <UsageStackedBar data={barData} keys={unitKeys} />
+        </div>
       </div>
 
       <div>
