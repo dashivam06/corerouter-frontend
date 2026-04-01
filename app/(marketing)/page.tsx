@@ -140,18 +140,61 @@ export default async function LandingPage() {
                     <p className="ml-4 text-xs text-zinc-400">Terminal</p>
                   </div>
                   <div className="bg-black p-6">
-                    <pre className="overflow-x-auto text-sm leading-relaxed">
-                      <code className="font-mono text-zinc-300">
-{`$ curl https://api.corerouter.com/v1/complete \\
-  -H "Authorization: Bearer pk_test_abc123..." \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "mistral-7b",
-    "messages": [{
-      "role": "user",
-      "content": "Explain quantum computing"
-    }]
-  }'`}
+                    <pre className="overflow-x-auto text-sm leading-relaxed font-mono">
+                      <code>
+                        <span className="text-zinc-500">$</span>
+                        <span className="text-cyan-400"> curl</span>
+                        <span className="text-blue-300"> https://api.corerouter.com/v1/complete</span>
+                        <span className="text-zinc-500"> \</span>
+                        <br />
+                        <span className="text-zinc-500">  </span>
+                        <span className="text-cyan-400">-H</span>
+                        <span className="text-yellow-300"> "Authorization: Bearer </span>
+                        <span className="text-green-400">pk_test_abc123</span>
+                        <span className="text-yellow-300">..."</span>
+                        <span className="text-zinc-500"> \</span>
+                        <br />
+                        <span className="text-zinc-500">  </span>
+                        <span className="text-cyan-400">-H</span>
+                        <span className="text-yellow-300"> "Content-Type: </span>
+                        <span className="text-orange-300">application/json</span>
+                        <span className="text-yellow-300">"</span>
+                        <span className="text-zinc-500"> \</span>
+                        <br />
+                        <span className="text-zinc-500">  </span>
+                        <span className="text-cyan-400">-d</span>
+                        <span className="text-yellow-300"> '</span>
+                        <span className="text-zinc-300">{`{`}</span>
+                        <br />
+                        <span className="text-zinc-500">    </span>
+                        <span className="text-pink-400">"model"</span>
+                        <span className="text-zinc-500">: </span>
+                        <span className="text-green-400">"mistral-7b"</span>
+                        <span className="text-zinc-300">,</span>
+                        <br />
+                        <span className="text-zinc-500">    </span>
+                        <span className="text-pink-400">"messages"</span>
+                        <span className="text-zinc-500">: [</span>
+                        <span className="text-zinc-300">{`{`}</span>
+                        <br />
+                        <span className="text-zinc-500">      </span>
+                        <span className="text-pink-400">"role"</span>
+                        <span className="text-zinc-500">: </span>
+                        <span className="text-green-400">"user"</span>
+                        <span className="text-zinc-300">,</span>
+                        <br />
+                        <span className="text-zinc-500">      </span>
+                        <span className="text-pink-400">"content"</span>
+                        <span className="text-zinc-500">: </span>
+                        <span className="text-green-400">"Explain quantum computing"</span>
+                        <br />
+                        <span className="text-zinc-500">    </span>
+                        <span className="text-zinc-300">{`}`}</span>
+                        <span className="text-zinc-500">]</span>
+                        <br />
+                        <span className="text-zinc-500">  </span>
+                        <span className="text-zinc-300">{`}`}</span>
+                        <span className="text-yellow-300">'</span>
                       </code>
                     </pre>
                   </div>
