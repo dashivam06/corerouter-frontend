@@ -3,6 +3,7 @@
 import { use, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { fetchBillingForModel, fetchModelDocs, fetchModels } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Check, Copy, ArrowLeft } from "lucide-react";
@@ -13,6 +14,10 @@ export default function ModelDetailPage({
   params: Promise<{ username: string }>;
 }) {
   const { username } = use(params);
+  const pathname = usePathname();
+  const modelBasePath = pathname.startsWith("/dashboard/models")
+    ? "/dashboard/models"
+    : "/models";
   const { data: models } = useQuery({
     queryKey: ["models"],
     queryFn: fetchModels,
@@ -34,7 +39,7 @@ export default function ModelDetailPage({
     return (
       <div className="py-20 text-center text-sm text-zinc-500">
         Model not found.{" "}
-        <Link href="/models" className="text-zinc-950 underline">
+        <Link href={modelBasePath} className="text-zinc-950 underline">
           Back to catalog
         </Link>
       </div>
@@ -68,7 +73,7 @@ export default function ModelDetailPage({
   return (
     <div className="w-full">
       <Link 
-        href="/models" 
+        href={modelBasePath}
         className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-950"
       >
         <ArrowLeft className="h-4 w-4" />

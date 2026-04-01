@@ -10,9 +10,7 @@ export default function ModelsLayout({
   return (
     <div className="min-h-screen bg-white text-zinc-950 [font-family:var(--font-montserrat)]">
       <PublicHeader />
-      <div className="w-full px-8 py-10">
-        {children}
-      </div>
+      <div className="w-full px-8 py-10">{children}</div>
     </div>
   );
 }

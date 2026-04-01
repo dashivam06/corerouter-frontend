@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBillingForModel, fetchModels } from "@/lib/api";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { pricingPreviewLine } from "@/lib/pricing-text";
 import type { MockModel } from "@/lib/mock-data";
@@ -19,6 +20,10 @@ function getCreatedAtLabel(model: MockModel): string {
 }
 
 function ModelCard({ model, price }: { model: MockModel; price: string }) {
+  const pathname = usePathname();
+  const modelBasePath = pathname.startsWith("/dashboard/models")
+    ? "/dashboard/models"
+    : "/models";
   const [copied, setCopied] = useState(false);
 
   return (
@@ -48,7 +53,7 @@ function ModelCard({ model, price }: { model: MockModel; price: string }) {
             {copied ? "Copied" : "Copy username"}
           </button>
           <Link
-            href={`/models/${model.username}`}
+            href={`${modelBasePath}/${model.username}`}
             className="inline-flex h-9 items-center rounded-lg bg-zinc-950 px-3 text-xs font-medium text-white transition-opacity hover:opacity-90"
           >
             View details

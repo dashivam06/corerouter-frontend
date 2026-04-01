@@ -19,7 +19,7 @@ import { useAuthStore } from "@/stores/auth-store";
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "API Keys", href: "/dashboard/api-keys", icon: Key },
-  { label: "Models", href: "/models", icon: Cpu },
+  { label: "Models", href: "/dashboard/models", icon: Cpu },
   { label: "Usage", href: "/dashboard/usage", icon: BarChart2 },
   { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
