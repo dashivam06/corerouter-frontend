@@ -17,6 +17,19 @@ import {
   User,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
+import {
+  ApiRequestError,
+  changePassword,
+  deleteAccount,
+  refreshAuthToken,
+  updateProfile,
+} from "@/lib/api";
+import {
+  clearRefreshTokenCookie,
+  clearAuthTokenStorage,
+  getRefreshTokenCookie,
+  setRefreshTokenCookie,
+} from "@/lib/auth";
 import { UserHeader } from "@/components/layout/user-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -84,11 +97,15 @@ function SettingsCard({
 
 export default function SettingsPage() {
   const user = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const setTokens = useAuthStore((s) => s.setTokens);
   const updateUser = useAuthStore((s) => s.updateUser);
+  const clearSession = useAuthStore((s) => s.clearSession);
 
   const [fullName, setFullName] = useState(user?.full_name ?? "");
   const [subscribed, setSubscribed] = useState(user?.email_subscribed ?? true);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [curPw, setCurPw] = useState("");
@@ -98,9 +115,12 @@ export default function SettingsPage() {
   const [show2, setShow2] = useState(false);
   const [show3, setShow3] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
+  const [pwLoading, setPwLoading] = useState(false);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const pwScore = useMemo(() => scorePassword(newPw), [newPw]);
   const str = strengthLabel(pwScore);
@@ -113,6 +133,44 @@ export default function SettingsPage() {
   const memberSince = user?.created_at
     ? format(new Date(user.created_at), "MMMM yyyy")
     : "—";
+
+  async function redirectToLogin() {
+    clearSession();
+    clearRefreshTokenCookie();
+    clearAuthTokenStorage();
+    window.location.assign("/login");
+  }
+
+  async function withRefreshRetry<T>(
+    action: (token: string) => Promise<T>
+  ): Promise<T> {
+    if (!accessToken) {
+      await redirectToLogin();
+      throw new Error("No access token");
+    }
+
+    try {
+      return await action(accessToken);
+    } catch (error) {
+      if (!(error instanceof ApiRequestError) || error.status !== 401) {
+        throw error;
+      }
+      const refreshToken = getRefreshTokenCookie();
+      if (!refreshToken) {
+        await redirectToLogin();
+        throw error;
+      }
+      try {
+        const nextTokens = await refreshAuthToken(refreshToken);
+        setRefreshTokenCookie(nextTokens.refreshToken);
+        setTokens(nextTokens);
+        return action(nextTokens.accessToken);
+      } catch {
+        await redirectToLogin();
+        throw error;
+      }
+    }
+  }
 
   return (
     <>
@@ -239,17 +297,43 @@ export default function SettingsPage() {
                 <Button
                   type="button"
                   className="h-10 rounded-xl bg-zinc-950 px-6 text-white hover:bg-zinc-900"
-                  onClick={() => {
-                    updateUser({
-                      full_name: fullName,
-                      email_subscribed: subscribed,
-                    });
-                    setSaved(true);
-                    setTimeout(() => setSaved(false), 2500);
+                    onClick={async () => {
+                      setSaveError(null);
+                      try {
+                        const payload: { fullName?: string; profileImage?: string } = {};
+                        if (fullName.trim() && fullName.trim() !== user?.full_name) {
+                          payload.fullName = fullName.trim();
+                        }
+                        if (user?.profile_image) {
+                          payload.profileImage = user.profile_image;
+                        }
+                        if (Object.keys(payload).length > 0) {
+                          await withRefreshRetry((token) => updateProfile(token, payload));
+                        }
+                        updateUser({
+                          full_name: fullName,
+                          email_subscribed: subscribed,
+                        });
+                        setSaved(true);
+                        setTimeout(() => setSaved(false), 2500);
+                      } catch (error) {
+                        if (error instanceof ApiRequestError && error.status === 401) {
+                          await redirectToLogin();
+                          return;
+                        }
+                        if (error instanceof ApiRequestError && Object.keys(error.fieldErrors).length > 0) {
+                          setSaveError(Object.values(error.fieldErrors)[0]);
+                          return;
+                        }
+                        setSaveError("Failed to update profile. Try again.");
+                      }
                   }}
                 >
                   Save changes
                 </Button>
+                {saveError ? (
+                  <span className="text-sm font-medium text-red-600">{saveError}</span>
+                ) : null}
                 {saved ? (
                   <span className="flex items-center gap-1.5 text-sm font-medium text-green-600">
                     <Check className="size-4" /> Profile updated
@@ -362,8 +446,9 @@ export default function SettingsPage() {
                     <div className="border-t border-zinc-100 pt-5">
                       <Button
                         type="button"
+                        disabled={pwLoading}
                         className="h-10 w-full rounded-xl bg-zinc-950 px-6 text-white hover:bg-zinc-900 sm:w-auto"
-                        onClick={() => {
+                        onClick={async () => {
                           if (curPw.length < 1) {
                             setPwError("Current password is incorrect.");
                             return;
@@ -373,12 +458,38 @@ export default function SettingsPage() {
                             return;
                           }
                           setPwError(null);
-                          setCurPw("");
-                          setNewPw("");
-                          setConfPw("");
+                          setPwLoading(true);
+                          try {
+                            await withRefreshRetry((token) =>
+                              changePassword(token, {
+                                currentPassword: curPw,
+                                newPassword: newPw,
+                                confirmPassword: confPw,
+                              })
+                            );
+                            setCurPw("");
+                            setNewPw("");
+                            setConfPw("");
+                          } catch (error) {
+                            if (error instanceof ApiRequestError) {
+                              if (error.status === 401) {
+                                await redirectToLogin();
+                                return;
+                              }
+                              if (Object.keys(error.fieldErrors).length > 0) {
+                                setPwError(Object.values(error.fieldErrors)[0]);
+                              } else {
+                                setPwError(error.message);
+                              }
+                            } else {
+                              setPwError("Failed to change password. Try again.");
+                            }
+                          } finally {
+                            setPwLoading(false);
+                          }
                         }}
                       >
-                        Update password
+                        {pwLoading ? "Updating..." : "Update password"}
                       </Button>
                     </div>
 
@@ -435,21 +546,54 @@ export default function SettingsPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-2 py-2">
-            <Label htmlFor="del">Type &quot;DELETE&quot; to confirm</Label>
+            <Label htmlFor="del">Enter current password to confirm</Label>
             <Input
               id="del"
+              type="password"
               value={deleteConfirm}
               onChange={(e) => setDeleteConfirm(e.target.value)}
               className="h-10 rounded-xl"
             />
+            {deleteError ? (
+              <p className="text-sm text-red-600">{deleteError}</p>
+            ) : null}
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 text-white hover:bg-red-600"
-              disabled={deleteConfirm !== "DELETE"}
+              disabled={!deleteConfirm || deleteLoading}
+              onClick={async (e) => {
+                e.preventDefault();
+                setDeleteError(null);
+                setDeleteLoading(true);
+                try {
+                  await withRefreshRetry((token) =>
+                    deleteAccount(token, { password: deleteConfirm })
+                  );
+                  clearSession();
+                  clearRefreshTokenCookie();
+                  clearAuthTokenStorage();
+                  window.location.assign("/login");
+                } catch (error) {
+                  if (error instanceof ApiRequestError) {
+                    if (error.status === 401) {
+                      clearSession();
+                      clearRefreshTokenCookie();
+                      clearAuthTokenStorage();
+                      window.location.assign("/login");
+                      return;
+                    }
+                    setDeleteError(error.message || "Failed to delete account. Try again.");
+                  } else {
+                    setDeleteError("Failed to delete account. Try again.");
+                  }
+                } finally {
+                  setDeleteLoading(false);
+                }
+              }}
             >
-              Delete my account
+              {deleteLoading ? "Deleting..." : "Delete my account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

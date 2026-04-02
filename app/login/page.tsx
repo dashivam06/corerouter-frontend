@@ -3,9 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import { loginSendEmail, loginWithPassword } from "@/lib/api";
+import { setAuthTokenStorage, setRefreshTokenCookie } from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
 
 const surfaceLowest = "bg-[#0e0e10]";
@@ -21,13 +22,22 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [cooldownSecs, setCooldownSecs] = useState(0);
+
+  useEffect(() => {
+    if (cooldownSecs <= 0) return;
+    const timer = window.setInterval(() => {
+      setCooldownSecs((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldownSecs]);
 
   async function onContinueEmail(e: React.FormEvent) {
     e.preventDefault();
+    setFieldErrors({});
     setError(null);
-    setLoading(true);
     const r = await loginSendEmail(email.trim());
-    setLoading(false);
     if (!r.ok) {
       setError(r.error ?? "Something went wrong.");
       return;
@@ -37,15 +47,27 @@ export default function LoginPage() {
 
   async function onSignIn(e: React.FormEvent) {
     e.preventDefault();
+    if (cooldownSecs > 0) return;
+    setFieldErrors({});
     setError(null);
     setLoading(true);
     const r = await loginWithPassword(email.trim(), password);
     setLoading(false);
-    if (r.error || !r.accessToken) {
+    if (r.error || !r.accessToken || !r.user) {
+      setFieldErrors(r.fieldErrors ?? {});
+      if (r.status === 429) {
+        setCooldownSecs(30);
+      }
       setError(r.error ?? "Invalid credentials.");
       return;
     }
-    setSession(r.user, r.accessToken);
+    setSession(r.user, {
+      accessToken: r.accessToken,
+      refreshToken: r.refreshToken,
+      expiresIn: r.expiresIn,
+    });
+    setAuthTokenStorage(r.accessToken);
+    setRefreshTokenCookie(r.refreshToken);
     router.push("/dashboard");
   }
 
@@ -92,6 +114,9 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-sm border border-zinc-200 bg-zinc-50 px-4 py-3 text-zinc-950 outline-none transition-all placeholder:text-zinc-300 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 font-montserrat "
                 />
+                {fieldErrors.email ? (
+                  <p className="text-sm text-red-600">{fieldErrors.email}</p>
+                ) : null}
               </div>
               {error ? (
                 <p className="text-sm text-red-600" role="alert">
@@ -175,6 +200,9 @@ export default function LoginPage() {
                     )}
                   </button>
                 </div>
+                {fieldErrors.password ? (
+                  <p className="text-sm text-red-600">{fieldErrors.password}</p>
+                ) : null}
               </div>
               {error ? (
                 <p className="text-sm text-red-600" role="alert">
@@ -183,13 +211,13 @@ export default function LoginPage() {
               ) : null}
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || cooldownSecs > 0}
                 className="w-full rounded-sm bg-zinc-950 py-3 font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
               >
                 {loading ? (
                   <Loader2 className="mx-auto size-4 animate-spin" />
                 ) : (
-                  "Sign in"
+                  cooldownSecs > 0 ? `Try again in ${cooldownSecs}s` : "Sign in"
                 )}
               </button>
             </form>

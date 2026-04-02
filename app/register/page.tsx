@@ -10,6 +10,7 @@ import {
   registerSendOtp,
   verifyOtp,
 } from "@/lib/api";
+import { setAuthTokenStorage, setRefreshTokenCookie } from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
 
 type Step = "email" | "otp" | "profile";
@@ -48,6 +49,7 @@ export default function RegisterPage() {
   const setSession = useAuthStore((s) => s.setSession);
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
+  const [verificationId, setVerificationId] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [fullName, setFullName] = useState("");
@@ -57,7 +59,9 @@ export default function RegisterPage() {
   const [subscribeMarketing, setSubscribeMarketing] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [resendSecs, setResendSecs] = useState(0);
+  const [profileTtlSecs, setProfileTtlSecs] = useState(0);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -65,6 +69,14 @@ export default function RegisterPage() {
     const t = setInterval(() => setResendSecs((s) => s - 1), 1000);
     return () => clearInterval(t);
   }, [resendSecs]);
+
+  useEffect(() => {
+    if (profileTtlSecs <= 0) return;
+    const t = setInterval(() => {
+      setProfileTtlSecs((s) => (s > 0 ? s - 1 : 0));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [profileTtlSecs]);
 
   useEffect(() => {
     return () => {
@@ -76,51 +88,100 @@ export default function RegisterPage() {
 
   async function onEmail(e: React.FormEvent) {
     e.preventDefault();
+    setFieldErrors({});
     setError(null);
     setLoading(true);
     const r = await registerSendOtp(email.trim());
     setLoading(false);
     if (!r.ok) {
+      setFieldErrors(r.fieldErrors ?? {});
+      if (r.status === 429) setResendSecs(45);
       setError(r.error ?? "Could not send code.");
       return;
     }
+    setVerificationId(r.verificationId ?? "");
     setResendSecs(45);
     setStep("otp");
   }
 
   async function onVerifyOtp(e: React.FormEvent) {
     e.preventDefault();
+    if (!verificationId) {
+      setError("Please request a new OTP code.");
+      setStep("email");
+      return;
+    }
     const code = otp.join("");
+    setFieldErrors({});
     setError(null);
     setLoading(true);
-    const r = await verifyOtp(email.trim(), code);
+    const r = await verifyOtp(verificationId, code);
     setLoading(false);
     if (!r.ok) {
+      setFieldErrors(r.fieldErrors ?? {});
+      if (r.status === 401) {
+        setVerificationId("");
+        setOtp(["", "", "", "", "", ""]);
+        setResendSecs(0);
+        setStep("email");
+      }
+      if (r.status === 410) {
+        setResendSecs(0);
+      }
+      if (r.status === 429) {
+        setResendSecs(45);
+      }
       setError(r.error ?? "Invalid code.");
       return;
+    }
+    if (r.data?.verificationId) {
+      setVerificationId(r.data.verificationId);
+    }
+    if (r.data?.profileCompletionTtlMinutes) {
+      setProfileTtlSecs(r.data.profileCompletionTtlMinutes * 60);
     }
     setStep("profile");
   }
 
   async function onComplete(e: React.FormEvent) {
     e.preventDefault();
+    setFieldErrors({});
     if (password !== confirm) {
       setError("Passwords do not match.");
+      return;
+    }
+    if (!verificationId) {
+      setError("Session expired. Please restart registration.");
+      setStep("email");
       return;
     }
     setError(null);
     setLoading(true);
     const r = await completeRegistration({
+      verificationId,
       email: email.trim(),
       full_name: fullName.trim(),
       password,
+      confirmPassword: confirm,
     });
     setLoading(false);
-    if (r.error || !r.accessToken) {
+    if (r.error || !r.accessToken || !r.user) {
+      setFieldErrors(r.fieldErrors ?? {});
+      if (r.status === 410) {
+        setVerificationId("");
+        setOtp(["", "", "", "", "", ""]);
+        setStep("email");
+      }
       setError(r.error ?? "Could not create account.");
       return;
     }
-    setSession(r.user, r.accessToken);
+    setSession(r.user, {
+      accessToken: r.accessToken,
+      refreshToken: r.refreshToken,
+      expiresIn: r.expiresIn,
+    });
+    setAuthTokenStorage(r.accessToken);
+    setRefreshTokenCookie(r.refreshToken);
     router.push("/dashboard");
   }
 
@@ -185,6 +246,9 @@ export default function RegisterPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-sm border border-zinc-200 bg-zinc-50 px-4 py-3 text-zinc-950 outline-none placeholder:text-zinc-300 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 font-poppins"
                 />
+                {fieldErrors.email ? (
+                  <p className="text-sm text-red-600">{fieldErrors.email}</p>
+                ) : null}
               </div>
               {error ? (
                 <p className="text-sm text-red-600" role="alert">
@@ -253,6 +317,9 @@ export default function RegisterPage() {
                   {error}
                 </p>
               ) : null}
+              {fieldErrors.otp ? (
+                <p className="text-center text-sm text-red-400">{fieldErrors.otp}</p>
+              ) : null}
               <div className="space-y-4">
                 <button
                   type="submit"
@@ -270,8 +337,17 @@ export default function RegisterPage() {
                   disabled={resendSecs > 0}
                   className="w-full text-xs font-medium text-zinc-400 transition-colors hover:text-white disabled:opacity-50"
                   onClick={async () => {
+                    if (resendSecs > 0) return;
                     setError(null);
-                    await registerSendOtp(email.trim());
+                    setFieldErrors({});
+                    const resend = await registerSendOtp(email.trim());
+                    if (!resend.ok) {
+                      setFieldErrors(resend.fieldErrors ?? {});
+                      setError(resend.error ?? "Could not resend code.");
+                      if (resend.status === 429) setResendSecs(45);
+                      return;
+                    }
+                    if (resend.verificationId) setVerificationId(resend.verificationId);
                     setResendSecs(45);
                   }}
                 >
@@ -296,6 +372,12 @@ export default function RegisterPage() {
               </p>
             </div>
             <form className="space-y-5" onSubmit={onComplete}>
+              {profileTtlSecs > 0 ? (
+                <p className="text-xs text-zinc-400">
+                  Complete registration in {Math.floor(profileTtlSecs / 60)}:
+                  {(profileTtlSecs % 60).toString().padStart(2, "0")}
+                </p>
+              ) : null}
               <div className="grid grid-cols-[minmax(0,1fr)_140px] gap-x-6 gap-y-4">
                 <div className="space-y-1.5">
                   <label className={labelDark} htmlFor="verified-email">
@@ -353,6 +435,9 @@ export default function RegisterPage() {
                     onChange={(e) => setFullName(e.target.value)}
                     className="w-full rounded-sm border border-[#474747] bg-[#1c1b1d] px-4 py-3 text-white outline-none placeholder:text-zinc-600 focus:border-white focus:ring-0 font-poppins"
                   />
+                  {fieldErrors.fullName ? (
+                    <p className="text-sm text-red-400">{fieldErrors.fullName}</p>
+                  ) : null}
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -369,6 +454,9 @@ export default function RegisterPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full rounded-sm border border-[#474747] bg-[#1c1b1d] px-4 py-3 text-white outline-none placeholder:text-zinc-600 focus:border-white focus:ring-0 font-poppins"
                 />
+                {fieldErrors.password ? (
+                  <p className="text-sm text-red-400">{fieldErrors.password}</p>
+                ) : null}
               </div>
               <div className="space-y-1.5">
                 <label className={labelDark} htmlFor="pw2">
@@ -383,6 +471,9 @@ export default function RegisterPage() {
                   onChange={(e) => setConfirm(e.target.value)}
                   className="w-full rounded-sm border border-[#474747] bg-[#1c1b1d] px-4 py-3 text-white outline-none placeholder:text-zinc-600 focus:border-white focus:ring-0 font-poppins"
                 />
+                {fieldErrors.confirmPassword ? (
+                  <p className="text-sm text-red-400">{fieldErrors.confirmPassword}</p>
+                ) : null}
               </div>
               <label className="flex items-start gap-3 rounded-sm border border-[#474747] bg-[#1c1b1d] p-3">
                 <input

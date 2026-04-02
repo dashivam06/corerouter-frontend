@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
+import { logoutAuth } from "@/lib/api";
+import { clearAllAuthClientTokens, getRefreshTokenCookie } from "@/lib/auth";
 
 const navItems = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
@@ -111,8 +113,17 @@ export function AdminSidebar() {
           <button
             type="button"
             className="rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-white"
-            onClick={() => {
+            onClick={async () => {
+              const token = getRefreshTokenCookie();
               logout();
+              if (token) {
+                try {
+                  await logoutAuth(token);
+                } catch {
+                  // Local session is already cleared.
+                }
+              }
+              clearAllAuthClientTokens();
               router.push("/login");
             }}
             aria-label="Sign out"
