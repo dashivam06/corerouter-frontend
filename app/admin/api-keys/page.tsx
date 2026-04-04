@@ -271,6 +271,7 @@ function getOwnerSubLabel(item: AdminApiKeyListItemView) {
 export default function AdminApiKeysPage() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<"ALL" | AdminApiKeyStatus>("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
   const [statusChangeContext, setStatusChangeContext] = useState<{ apiKeyId: number; owner: string } | null>(null);
   const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>("7d");
   const [page, setPage] = useState(1);
@@ -351,7 +352,7 @@ export default function AdminApiKeysPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [statusFilter]);
+  }, [statusFilter, searchQuery]);
 
   useEffect(() => {
     if (!keysQuery.data) return;
@@ -402,6 +403,17 @@ export default function AdminApiKeysPage() {
   const isDeltaPositive = deltaFromLastMonth >= 0;
 
   const getKeyStatus = (item: AdminApiKeyListItemView) => statusOverrides[item.apiKeyId] ?? item.status;
+
+  const filteredPageItems = useMemo(() => {
+    if (!searchQuery.trim()) return pageItems;
+    const query = searchQuery.toLowerCase();
+    return pageItems.filter((item) => {
+      const owner = getOwnerLabel(item).toLowerCase();
+      const email = getOwnerSubLabel(item).toLowerCase();
+      const description = (item.description || "").toLowerCase();
+      return owner.includes(query) || email.includes(query) || description.includes(query);
+    });
+  }, [pageItems, searchQuery]);
 
   function handleStatusChange(item: AdminApiKeyListItemView, nextStatus: AdminApiKeyStatus) {
     const currentStatus = getKeyStatus(item);
@@ -550,8 +562,8 @@ export default function AdminApiKeysPage() {
             <h2 className="text-sm font-semibold text-zinc-950">Status distribution</h2>
             {/* <p className="text-xs text-zinc-500">Live counts from the admin insights endpoint.</p> */}
           </div>
-          <div className="h-[200px]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
+          <div className="h-[160px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={160}>
               <PieChart>
                 <Pie
                   data={statusSummary}
@@ -559,8 +571,8 @@ export default function AdminApiKeysPage() {
                   nameKey="name"
                   cx="50%"
                   cy="50%"
-                  innerRadius={52}
-                  outerRadius={82}
+                  innerRadius={44}
+                  outerRadius={68}
                   stroke="#ffffff"
                   strokeWidth={2}
                 >
@@ -572,7 +584,7 @@ export default function AdminApiKeysPage() {
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <div className="mt-2 flex flex-wrap items-center justify-center gap-4 text-xs text-zinc-600">
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-3 text-xs text-zinc-600">
             {statusSummary.map((entry) => (
               <span key={entry.name} className="flex items-center gap-2">
                 <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: entry.color }} />
@@ -601,8 +613,17 @@ export default function AdminApiKeysPage() {
               </button>
             ))}
           </div>
-          <div className="ml-auto text-xs text-zinc-500">
-            {keysQuery.isFetching ? "Refreshing…" : `Showing ${pageItems.length} of ${keysPage?.totalElements ?? 0}`}
+          <div className="ml-auto flex items-center gap-3">
+            <input
+              type="text"
+              placeholder="Search by owner, email, or description…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="text-xs px-2 py-1.5 border border-zinc-200 rounded-lg bg-white text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-300"
+            />
+            <div className="text-xs text-zinc-500">
+              {keysQuery.isFetching ? "Refreshing…" : `Showing ${filteredPageItems.length} of ${keysPage?.totalElements ?? 0}`}
+            </div>
           </div>
         </div>
 
@@ -624,14 +645,14 @@ export default function AdminApiKeysPage() {
                     Loading API keys…
                   </td>
                 </tr>
-              ) : pageItems.length === 0 ? (
+              ) : filteredPageItems.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-14 text-center text-sm text-zinc-500">
-                    No API keys match the current filter.
+                    {searchQuery ? "No API keys match your search." : "No API keys match the current filter."}
                   </td>
                 </tr>
               ) : (
-                pageItems.map((item: AdminApiKeyListItemView) => (
+                filteredPageItems.map((item: AdminApiKeyListItemView) => (
                   (() => {
                     const dailyUsed = asNumber(item.dailyUsed);
                     const dailyLimit = asNumber(item.dailyLimit);
@@ -714,7 +735,7 @@ export default function AdminApiKeysPage() {
             <button
               type="button"
               onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-              disabled={currentPage === totalPages || keysQuery.isLoading}
+              disabled={currentPage === totalPages || keysQuery.isLoading || filteredPageItems.length === 0}
               className="rounded-lg border border-zinc-200 px-3 py-1.5 text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Next
