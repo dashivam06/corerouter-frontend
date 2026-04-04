@@ -44,7 +44,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 3;
 const API_KEY_FILTER_STATUSES: Array<"ALL" | AdminApiKeyStatus> = ["ALL", "ACTIVE", "INACTIVE", "REVOKED"];
 const API_KEY_CHANGE_STATUSES: AdminApiKeyStatus[] = ["ACTIVE", "INACTIVE", "REVOKED"];
 const ANALYTICS_RANGES = ["7d", "30d", "6m", "1y"] as const;
@@ -517,8 +517,8 @@ export default function AdminApiKeysPage() {
             </Select>
           </div>
 
-          <div className="h-[260px]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
+          <div className="h-[200px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
               <BarChart
                 data={chartData}
                 margin={{ top: 6, right: 8, left: -10, bottom: 0 }}
@@ -550,8 +550,8 @@ export default function AdminApiKeysPage() {
             <h2 className="text-sm font-semibold text-zinc-950">Status distribution</h2>
             {/* <p className="text-xs text-zinc-500">Live counts from the admin insights endpoint.</p> */}
           </div>
-          <div className="h-[220px]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
+          <div className="h-[200px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
               <PieChart>
                 <Pie
                   data={statusSummary}
