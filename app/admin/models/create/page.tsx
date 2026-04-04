@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, ChevronLeft, XCircle } from "lucide-react";
 import type { AdminModelType, AdminModelStatus } from "@/lib/admin-mock-data";
-import { adminFetchModels } from "@/lib/admin-api";
+import { adminFetchModels, adminFetchProviders } from "@/lib/admin-api";
 import { JsonTreeEditor } from "@/components/admin/json-tree-editor";
 import { RichTextEditor } from "@/components/admin/rich-text-editor";
 import { PricingCalculator } from "@/components/admin/pricing-calculator";
@@ -54,18 +54,21 @@ export default function AdminCreateModelPage() {
     queryKey: ["admin-models"],
     queryFn: adminFetchModels,
   });
+  const { data: providers } = useQuery({
+    queryKey: ["admin-providers"],
+    queryFn: adminFetchProviders,
+  });
 
   const availableProviders = useMemo(() => {
-    const providers = new Set((models ?? []).map(m => m.provider));
-    return Array.from(providers).sort();
-  }, [models]);
+    return [...(providers ?? [])].sort((a, b) => a.providerName.localeCompare(b.providerName));
+  }, [providers]);
 
   const [step, setStep] = useState<Step>(1);
 
   const [fullName, setFullName] = useState("");
   const username = useMemo(() => slugify(fullName), [fullName]);
 
-  const [provider, setProvider] = useState(availableProviders[0] ?? "");
+  const [provider, setProvider] = useState<string>(availableProviders[0]?.providerName ?? "");
   const [type, setType] = useState<AdminModelType>("LLM");
   const [status, setStatus] = useState<AdminModelStatus>("NOTHING");
   const [endpointUrl, setEndpointUrl] = useState("");
@@ -97,6 +100,12 @@ export default function AdminCreateModelPage() {
   const [pricingMetadata, setPricingMetadata] = useState<any>(pricingScaffold);
 
   const [publishStatus, setPublishStatus] = useState<AdminModelStatus>("ACTIVE");
+
+  useEffect(() => {
+    if (!provider && availableProviders.length > 0) {
+      setProvider(availableProviders[0].providerName);
+    }
+  }, [availableProviders, provider]);
 
   return (
     <div>
@@ -175,12 +184,21 @@ export default function AdminCreateModelPage() {
                 <SelectContent>
                   {availableProviders.length > 0 ? (
                     availableProviders.map((p) => (
-                      <SelectItem key={p} value={p}>
-                        {p}
+                      <SelectItem key={p.providerId} value={p.providerName}>
+                        <span className="flex items-center gap-2">
+                          <span className="inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-zinc-50 text-[10px] font-semibold text-zinc-500">
+                            {p.logo ? (
+                              <img src={p.logo} alt={p.providerName} className="h-full w-full object-cover" />
+                            ) : (
+                              p.providerName.slice(0, 2).toUpperCase()
+                            )}
+                          </span>
+                          <span>{p.providerName}</span>
+                        </span>
                       </SelectItem>
                     ))
                   ) : (
-                    <SelectItem value="" disabled>
+                    <SelectItem value="__none__" disabled>
                       No providers available
                     </SelectItem>
                   )}

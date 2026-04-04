@@ -2,24 +2,22 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchBillingForModel, fetchModels } from "@/lib/api";
+import { type ModelResponse, fetchBillingForModel, fetchModels } from "@/lib/api";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { pricingPreviewLine } from "@/lib/pricing-text";
-import type { MockModel } from "@/lib/mock-data";
 import { useEffect } from "react";
 import { Check, Copy, Sparkles } from "lucide-react";
 
-function getCreatedAtLabel(model: MockModel): string {
-  const maybeCreatedAt = (model as MockModel & { created_at?: string }).created_at;
-  if (!maybeCreatedAt) return "Not available";
-  const d = new Date(maybeCreatedAt);
+function getCreatedAtLabel(model: ModelResponse): string {
+  if (!model.createdAt) return "Not available";
+  const d = new Date(model.createdAt);
   if (Number.isNaN(d.getTime())) return "Not available";
   return d.toLocaleDateString();
 }
 
-function ModelCard({ model, price }: { model: MockModel; price: string }) {
+function ModelCard({ model, price }: { model: ModelResponse; price: string }) {
   const pathname = usePathname();
   const modelBasePath = pathname.startsWith("/dashboard/models")
     ? "/dashboard/models"
@@ -100,8 +98,8 @@ export default function ModelsCatalogPage() {
       if (sortBy === "NAME_ASC") return a.fullname.localeCompare(b.fullname);
       if (sortBy === "NAME_DESC") return b.fullname.localeCompare(a.fullname);
 
-      const av = priceSortValues[a.model_id];
-      const bv = priceSortValues[b.model_id];
+      const av = priceSortValues[a.modelId];
+      const bv = priceSortValues[b.modelId];
 
       if (av == null && bv == null) return a.fullname.localeCompare(b.fullname);
       if (av == null) return 1;
@@ -120,12 +118,12 @@ export default function ModelsCatalogPage() {
       const entries: Record<number, string> = {};
       const sortValues: Record<number, number | null> = {};
       for (const m of models) {
-        const b = await fetchBillingForModel(m.model_id);
-        entries[m.model_id] = pricingPreviewLine(b);
+        const b = await fetchBillingForModel(m.modelId);
+        entries[m.modelId] = pricingPreviewLine(b);
         const rates = Object.values(b?.pricing_metadata?.rates ?? {}).filter(
           (r): r is number => typeof r === "number" && Number.isFinite(r)
         );
-        sortValues[m.model_id] = rates.length ? Math.min(...rates) : null;
+        sortValues[m.modelId] = rates.length ? Math.min(...rates) : null;
       }
       if (!cancelled) {
         setPrices(entries);
@@ -244,9 +242,9 @@ export default function ModelsCatalogPage() {
           <div className="space-y-4">
             {filtered.map((m) => (
               <ModelCard
-                key={m.model_id}
+                key={m.modelId}
                 model={m}
-                price={prices[m.model_id] ?? "…"}
+                price={prices[m.modelId] ?? "…"}
               />
             ))}
           </div>
@@ -256,6 +254,7 @@ export default function ModelsCatalogPage() {
               No models match your filters.
             </div>
           ) : null}
+
         </div>
       </div>
     </>

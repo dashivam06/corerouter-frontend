@@ -1,13 +1,8 @@
-/**
- * Temporary admin API (mock UI only). Replace with real fetch() calls later.
- */
-
-import { getAuthTokenStorage } from "@/lib/auth";
+import { createProvider as apiCreateProvider, fetchProviders as apiFetchProviders, getAllModels, type ModelResponse, type ProviderResponse } from "@/lib/api";
 
 import {
   adminApiKeys,
   adminHourlyTaskVolumeToday,
-  adminModels,
   adminRevenueSevenDaysAgoByHour,
   adminRevenueTodayByHour,
   adminRevenueYesterdayByHour,
@@ -34,6 +29,22 @@ async function mock<T>(value: T): Promise<T> {
   return structuredClone(value);
 }
 
+function toAdminModel(model: ModelResponse): AdminModel {
+  return {
+    model_id: model.modelId,
+    created_at: model.createdAt,
+    updated_at: model.updatedAt,
+    description: model.description,
+    endpoint_url: model.endpointUrl,
+    fullname: model.fullname,
+    metadata: {},
+    provider: model.provider,
+    status: model.status === "ACTIVE" ? "ACTIVE" : model.status === "INACTIVE" ? "INACTIVE" : model.status === "DEPRECATED" ? "DEPRECATED" : "ARCHIVED",
+    type: model.type === "LLM" || model.type === "OCR" ? model.type : "OTHER",
+    username: model.username,
+  };
+}
+
 export async function adminFetchUsers(): Promise<AdminUser[]> {
   return mock(adminUsers);
 }
@@ -43,7 +54,12 @@ export async function adminFetchApiKeys(): Promise<AdminApiKey[]> {
 }
 
 export async function adminFetchModels(): Promise<AdminModel[]> {
-  return mock(adminModels);
+  const models = await getAllModels();
+  return models.map(toAdminModel);
+}
+
+export async function adminFetchProviders(): Promise<ProviderResponse[]> {
+  return apiFetchProviders();
 }
 
 export async function adminFetchTasks(): Promise<AdminTask[]> {
@@ -94,38 +110,13 @@ export async function adminCreateProvider(input: {
   name: string;
   company?: string;
   country?: string;
-  logo: string;
+  logo?: string;
 }): Promise<void> {
-  const baseUrl = (
-    process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.corerouter.me"
-  ).replace(/\/$/, "");
-
-  const token = getAuthTokenStorage();
-  const response = await fetch(`${baseUrl}/api/v1/admin/providers`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(input),
+  await apiCreateProvider({
+    providerName: input.name,
+    providerCountry: input.country ?? "",
+    companyName: input.company ?? "",
+    logo: input.logo,
   });
-
-  if (response.ok) {
-    return;
-  }
-
-  let message = "Failed to create provider.";
-  try {
-    const payload = (await response.json()) as {
-      message?: string;
-    };
-    if (payload?.message) {
-      message = payload.message;
-    }
-  } catch {
-    // Keep generic error message.
-  }
-
-  throw new Error(message);
 }
 

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { MoreHorizontal, Plus } from "lucide-react";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { AdminStatCard } from "@/components/admin/stat-card";
-import { adminCreateProvider, adminFetchModels } from "@/lib/admin-api";
+import { adminCreateProvider, adminFetchModels, adminFetchProviders } from "@/lib/admin-api";
 import { uploadImageToCloudinary } from "@/lib/cloudinary";
 import { formatRelative } from "@/lib/formatters";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ModelTypePie, ModelTypePieLegend } from "@/components/charts/model-type-pie";
+import { useQueryClient } from "@tanstack/react-query";
 
 function usernamePill(username: string) {
   return (
@@ -25,12 +26,18 @@ function usernamePill(username: string) {
 }
 
 export default function AdminModelsPage() {
+  const queryClient = useQueryClient();
   const { data: models } = useQuery({
     queryKey: ["admin-models"],
     queryFn: adminFetchModels,
   });
+  const { data: providers } = useQuery({
+    queryKey: ["admin-providers"],
+    queryFn: adminFetchProviders,
+  });
 
   const list = models ?? [];
+  const providerList = providers ?? [];
   const [q, setQ] = useState("");
   const [providerDialogOpen, setProviderDialogOpen] = useState(false);
   const [countrySelectOpen, setCountrySelectOpen] = useState(false);
@@ -134,7 +141,7 @@ export default function AdminModelsPage() {
         />
         <AdminStatCard
           label="Providers"
-          value={new Set(list.map(m => m.provider)).size}
+          value={providerList.length}
         />
       </div>
 
@@ -200,13 +207,14 @@ export default function AdminModelsPage() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-6">
-          {Array.from(new Set(list.map(m => m.provider))).map((provider) => {
-            const isSelected = selectedProviders.has(provider);
+          {providerList.length > 0 ? providerList.map((provider) => {
+            const providerName = provider.providerName;
+            const isSelected = selectedProviders.has(providerName);
             return (
-            <div key={provider} className="group relative flex w-24 flex-col items-center gap-2">
+            <div key={provider.providerId} className="group relative flex w-24 flex-col items-center gap-2">
               <div className="relative">
                 <div 
-                  className={`flex h-16 w-16 items-center justify-center rounded-full border-2 text-sm font-semibold transition-all ${
+                  className={`flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 text-sm font-semibold transition-all ${
                     isSelected
                       ? "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-md"
                       : "border-zinc-200 bg-zinc-50 text-zinc-700 group-hover:shadow-md"
@@ -215,15 +223,23 @@ export default function AdminModelsPage() {
                     if (isSelectingProviders) {
                       const newSelected = new Set(selectedProviders);
                       if (isSelected) {
-                        newSelected.delete(provider);
+                        newSelected.delete(providerName);
                       } else {
-                        newSelected.add(provider);
+                        newSelected.add(providerName);
                       }
                       setSelectedProviders(newSelected);
                     }
                   }}
                 >
-                  {provider.slice(0, 2).toUpperCase()}
+                  {provider.logo ? (
+                    <img
+                      src={provider.logo}
+                      alt={providerName}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    providerName.slice(0, 2).toUpperCase()
+                  )}
                 </div>
                 {isSelectingProviders && (
                   <div className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full border-2 border-emerald-400 bg-white">
@@ -236,7 +252,8 @@ export default function AdminModelsPage() {
                 )}
               </div>
               <div className="relative flex w-full flex-col items-center">
-                <p className="text-center text-xs text-zinc-600 block">{provider}</p>
+                <p className="text-center text-xs text-zinc-600 block">{providerName}</p>
+                <p className="text-center text-[10px] text-zinc-400 block">{provider.providerCountry}</p>
                 {!isSelectingProviders && (
                 <DropdownMenu>
                   <DropdownMenuTrigger className="absolute -right-6 top-0 rounded-md p-1 text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100">
@@ -249,7 +266,7 @@ export default function AdminModelsPage() {
                     <DropdownMenuItem 
                       className="text-red-600"
                       onClick={() => {
-                        setProviderToDelete(provider);
+                        setProviderToDelete(providerName);
                         setDeleteProviderDialog(true);
                       }}
                     >
@@ -261,7 +278,11 @@ export default function AdminModelsPage() {
               </div>
             </div>
             );
-          })}
+          }) : (
+            <div className="w-full rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-6 text-sm text-zinc-500">
+              No providers yet. Add one from this page, then refresh the model create form.
+            </div>
+          )}
           <Dialog open={providerDialogOpen} onOpenChange={setProviderDialogOpen}>
             <DialogTrigger className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-zinc-300 bg-zinc-50 text-zinc-400 hover:border-zinc-400 hover:bg-zinc-100">
               <Plus className="size-6" />
@@ -409,22 +430,23 @@ export default function AdminModelsPage() {
                 <button
                   type="button"
                   onClick={async () => {
-                    if (!providerName.trim() || !providerImage) return;
+                    if (!providerName.trim() || !providerCompany.trim() || !providerCountry.trim()) return;
 
                     setProviderError(null);
                     setProviderSubmitting(true);
                     try {
-                      const logoUrl = await uploadImageToCloudinary(
-                        providerImage,
-                        "provider"
-                      );
+                      const logoUrl = providerImage
+                        ? await uploadImageToCloudinary(providerImage, "provider")
+                        : undefined;
 
                       await adminCreateProvider({
                         name: providerName.trim(),
-                        company: providerCompany.trim() || undefined,
-                        country: providerCountry || undefined,
+                        company: providerCompany.trim(),
+                        country: providerCountry.trim(),
                         logo: logoUrl,
                       });
+
+                      await queryClient.invalidateQueries({ queryKey: ["admin-providers"] });
 
                       setProviderDialogOpen(false);
                       setProviderName("");
@@ -444,7 +466,7 @@ export default function AdminModelsPage() {
                     }
                   }}
                   className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-900 disabled:opacity-50 font-[Montserrat]"
-                  disabled={!providerName.trim() || !providerImage || providerSubmitting}
+                  disabled={!providerName.trim() || !providerCompany.trim() || !providerCountry.trim() || providerSubmitting}
                 >
                   {providerSubmitting ? "Adding..." : "Add provider"}
                 </button>

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Cpu, Zap, Wallet, Check, ArrowRight, BarChart2, Code2, Shield, TrendingUp } from "lucide-react";
-import { fetchModels, fetchBillingForModel } from "@/lib/api";
-import type { MockBillingConfig, MockModel } from "@/lib/mock-data";
+import { type ModelResponse, fetchModels, fetchBillingForModel } from "@/lib/api";
+import type { MockBillingConfig } from "@/lib/mock-data";
 import { StatusBadge } from "@/components/shared/status-badge";
 
 async function pricingRows() {
@@ -12,7 +12,7 @@ async function pricingRows() {
     line: string;
   }[] = [];
   for (const m of models.slice(0, 4)) {
-    const b = (await fetchBillingForModel(m.model_id)) as MockBillingConfig | null;
+    const b = (await fetchBillingForModel(m.modelId)) as MockBillingConfig | null;
     let line = "—";
     if (b?.pricing_type === "PER_TOKEN") {
       const in_ = b.pricing_metadata.rates?.INPUT_TOKENS_PER_1K ?? 0;
@@ -357,9 +357,9 @@ export default async function LandingPage() {
             </div>
 
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {models.map((model: MockModel) => (
+              {models.map((model) => (
                 <div
-                  key={model.model_id}
+                  key={model.modelId}
                   className="group rounded-lg border border-zinc-200 bg-white p-6 transition-all hover:border-zinc-300 hover:shadow-md"
                 >
                   <div className="mb-4 flex items-start justify-between">

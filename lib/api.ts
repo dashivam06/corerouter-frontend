@@ -38,7 +38,11 @@ const API_BASE_URL = (
 const AUTH_BASE = `${API_BASE_URL}/api/v1/auth`;
 const USER_PROFILE_BASE = `${API_BASE_URL}/api/v1/user/profile`;
 const API_KEYS_BASE = `${API_BASE_URL}/api/v1/apikeys`;
+const MODELS_BASE = `${API_BASE_URL}/api/v1/models`;
+const ADMIN_MODELS_BASE = `${API_BASE_URL}/api/v1/admin/models`;
+const PROVIDERS_BASE = `${API_BASE_URL}/api/v1/providers`;
 
+// API Key Types
 export type ApiKeyRecord = {
   apiKeyId: number;
   key: string;
@@ -54,6 +58,102 @@ type ApiKeyUpdateBody = {
   description?: string;
   dailyLimit?: number;
   monthlyLimit?: number;
+};
+
+// Model Types
+export type ModelStatus = "ACTIVE" | "INACTIVE" | "DEPRECATED" | "ARCHIVED";
+
+export type ModelResponse = {
+  modelId: number;
+  fullname: string;
+  username: string;
+  provider: string;
+  status: ModelStatus;
+  endpointUrl: string;
+  type: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ApiDocumentationResponse = {
+  docId?: number;
+  title?: string;
+  content?: string;
+  endpoint?: string;
+  example?: string;
+  [key: string]: unknown;
+};
+
+export type ModelDetailsResponse = ModelResponse & {
+  documentation: ApiDocumentationResponse[];
+};
+
+export type ModelCreateBody = {
+  fullname: string;
+  username: string;
+  provider: string;
+  endpointUrl: string;
+  description?: string;
+  type: string;
+};
+
+export type ModelUpdateBody = {
+  fullname?: string;
+  username?: string;
+  provider?: string;
+  endpointUrl?: string;
+  description?: string;
+  status?: ModelStatus;
+};
+
+export type ModelStatusUpdateBody = {
+  status: ModelStatus;
+  reason?: string;
+};
+
+// Provider Types
+export type ProviderStatus = "ACTIVE" | "DISABLED" | "SUSPENDED" | "DELETED";
+
+export type ProviderResponse = {
+  providerId: number;
+  providerName: string;
+  providerCountry: string;
+  companyName: string;
+  status: ProviderStatus;
+  logo: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProviderCreateBody = {
+  providerName: string;
+  providerCountry: string;
+  companyName: string;
+  logo?: string;
+};
+
+export type ProviderUpdateBody = {
+  providerName?: string;
+  providerCountry?: string;
+  companyName?: string;
+  logo?: string;
+};
+
+// Admin API Types
+export type ModelInsights = {
+  totalModels: number;
+  activeModels: number;
+  providers: number;
+};
+
+export type ModelStatusAudit = {
+  auditId: number;
+  modelId: number;
+  changedBy: string;
+  changedAt: string;
+  status: ModelStatus;
+  reason?: string;
 };
 
 type ValidationErrorItem = {
@@ -447,6 +547,263 @@ async function requestApiKeys<TRes>(
   );
 }
 
+async function requestModels<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  const doFetch = async (token?: string) => {
+    return fetch(`${MODELS_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError(
+      "Unable to connect. Check your internet connection.",
+      0
+    );
+  }
+
+  if (response.status === 401 && resolvedAccessToken) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestAdminModels<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${ADMIN_MODELS_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError(
+      "Unable to connect. Check your internet connection.",
+      0
+    );
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError(
+      "You don't have permission to perform this action.",
+      403,
+      parsed?.errors ?? []
+    );
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 403) {
+      const parsed = await parseResponse<TRes>(response);
+      throw new ApiRequestError(
+        "You don't have permission to perform this action.",
+        403,
+        parsed?.errors ?? []
+      );
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestProviders<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string,
+  requireAuth = false
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (requireAuth && !resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token?: string) => {
+    return fetch(`${PROVIDERS_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError(
+      "Unable to connect. Check your internet connection.",
+      0
+    );
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError(
+      requireAuth
+        ? "You don't have permission to perform this action."
+        : fallbackMessage(response.status),
+      403,
+      parsed?.errors ?? []
+    );
+  }
+
+  if (response.status === 401 && resolvedAccessToken) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 403) {
+      const parsed = await parseResponse<TRes>(response);
+      throw new ApiRequestError(
+        requireAuth
+          ? "You don't have permission to perform this action."
+          : fallbackMessage(response.status),
+        403,
+        parsed?.errors ?? []
+      );
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
 async function mockRequest<T>(data: T): Promise<T> {
   await delay();
   return structuredClone(data) as T;
@@ -755,18 +1112,101 @@ export async function deleteApiKey(
   await requestApiKeys<null>("DELETE", `/${apiKeyId}`, undefined, accessToken);
 }
 
-export async function fetchModels() {
-  return mockRequest(mockModels.filter((m) => m.status === "ACTIVE"));
+export async function fetchModels(): Promise<ModelResponse[]> {
+  return requestModels<ModelResponse[]>("GET", "");
 }
 
-export async function fetchModelDocs(modelId: number) {
-  return mockRequest(
-    mockApiDocs.filter((d) => d.model_id === modelId && d.active)
-  );
+export async function getModelDetails(modelId: number): Promise<ModelDetailsResponse> {
+  return requestModels<ModelDetailsResponse>("GET", `/${modelId}`);
+}
+
+export async function fetchModelDocs(modelId: number): Promise<ApiDocumentationResponse[]> {
+  const details = await getModelDetails(modelId);
+  return details.documentation || [];
 }
 
 export async function fetchBillingForModel(modelId: number) {
   return mockRequest(mockBilling.find((b) => b.model_id === modelId) ?? null);
+}
+
+// Provider endpoints (user-facing)
+export async function fetchProviders(): Promise<ProviderResponse[]> {
+  return requestProviders<ProviderResponse[]>("GET", "");
+}
+
+export async function getActiveProviders(): Promise<ProviderResponse[]> {
+  return requestProviders<ProviderResponse[]>("GET", "/active");
+}
+
+export async function getProviderById(providerId: number): Promise<ProviderResponse> {
+  return requestProviders<ProviderResponse>("GET", `/${providerId}`);
+}
+
+export async function getProviderByName(providerName: string): Promise<ProviderResponse> {
+  const encoded = encodeURIComponent(providerName);
+  return requestProviders<ProviderResponse>("GET", `/name/${encoded}`);
+}
+
+// Admin Model endpoints
+export async function getModelInsights(): Promise<ModelInsights> {
+  return requestAdminModels<ModelInsights>("GET", "/insights");
+}
+
+export async function createModel(body: ModelCreateBody): Promise<ModelResponse> {
+  return requestAdminModels<ModelResponse>("POST", "", body);
+}
+
+export async function getAllModels(): Promise<ModelResponse[]> {
+  return requestAdminModels<ModelResponse[]>("GET", "");
+}
+
+export async function getModelsByStatus(status: ModelStatus): Promise<ModelResponse[]> {
+  return requestAdminModels<ModelResponse[]>("GET", `/status/${status}`);
+}
+
+export async function getAdminModelDetails(modelId: number): Promise<ModelResponse> {
+  return requestAdminModels<ModelResponse>("GET", `/${modelId}`);
+}
+
+export async function updateModel(modelId: number, body: ModelUpdateBody): Promise<ModelResponse> {
+  return requestAdminModels<ModelResponse>("PUT", `/${modelId}`, body);
+}
+
+export async function updateModelStatus(modelId: number, body: ModelStatusUpdateBody): Promise<ModelResponse> {
+  return requestAdminModels<ModelResponse>("PATCH", `/${modelId}/status`, body);
+}
+
+export async function deleteModel(modelId: number): Promise<void> {
+  await requestAdminModels<null>("DELETE", `/${modelId}`);
+}
+
+export async function archiveModel(modelId: number): Promise<void> {
+  await requestAdminModels<null>("POST", `/${modelId}/archive`);
+}
+
+export async function inactivateModel(modelId: number): Promise<ModelResponse> {
+  return requestAdminModels<ModelResponse>("POST", `/${modelId}/inactivate`);
+}
+
+export async function getModelAuditHistory(modelId: number): Promise<ModelStatusAudit[]> {
+  return requestAdminModels<ModelStatusAudit[]>("GET", `/${modelId}/audit-history`);
+}
+
+// Admin Provider endpoints
+export async function createProvider(body: ProviderCreateBody): Promise<ProviderResponse> {
+  return requestProviders<ProviderResponse>("POST", "", body, undefined, true);
+}
+
+export async function updateProvider(providerId: number, body: ProviderUpdateBody): Promise<ProviderResponse> {
+  return requestProviders<ProviderResponse>("PUT", `/${providerId}`, body, undefined, true);
+}
+
+export async function changeProviderStatus(providerId: number, status: ProviderStatus): Promise<ProviderResponse> {
+  return requestProviders<ProviderResponse>("PATCH", `/${providerId}/status?status=${status}`, undefined, undefined, true);
+}
+
+export async function deleteProvider(providerId: number): Promise<void> {
+  await requestProviders<null>("DELETE", `/${providerId}`, undefined, undefined, true);
 }
 
 export async function fetchTasks(): Promise<MockTask[]> {

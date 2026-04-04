@@ -4,7 +4,7 @@ import { use, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { fetchBillingForModel, fetchModelDocs, fetchModels } from "@/lib/api";
+import { type ModelResponse, fetchBillingForModel, fetchModelDocs, fetchModels } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Check, Copy, ArrowLeft } from "lucide-react";
 
@@ -25,13 +25,13 @@ export default function ModelDetailPage({
   const model = models?.find((m) => m.username === username);
   const [copied, setCopied] = useState(false);
   const { data: billing } = useQuery({
-    queryKey: ["model-billing", model?.model_id],
-    queryFn: () => fetchBillingForModel(model!.model_id),
+    queryKey: ["model-billing", model?.modelId],
+    queryFn: () => fetchBillingForModel(model!.modelId),
     enabled: !!model,
   });
   const { data: docs } = useQuery({
-    queryKey: ["model-docs", model?.model_id],
-    queryFn: () => fetchModelDocs(model!.model_id),
+    queryKey: ["model-docs", model?.modelId],
+    queryFn: () => fetchModelDocs(model!.modelId),
     enabled: !!model,
   });
 
@@ -142,25 +142,33 @@ export default function ModelDetailPage({
             </p>
           ) : (
             <div className="space-y-4">
-              {docs.map((d) => (
-                <article
-                  key={d.doc_id}
-                  className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-100 pb-3">
-                    <h3 className="text-[15px] font-semibold text-zinc-950">
-                      {d.title}
-                    </h3>
-                    <p className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500">
-                      {renderDocDate(d.created_at, d.updated_at)}
-                    </p>
-                  </div>
+              {docs.map((d, idx) => {
+                const docId = (d as any).docId ?? (d as any).doc_id ?? idx;
+                const title = (d as any).title ?? "Documentation";
+                const content = (d as any).content ?? "";
+                const createdAt = (d as any).createdAt ?? (d as any).created_at ?? new Date().toISOString();
+                const updatedAt = (d as any).updatedAt ?? (d as any).updated_at;
+                
+                return (
                   <article
-                    className="mt-4 rounded-xl border border-zinc-100 bg-zinc-50/40 p-4 text-sm leading-relaxed text-zinc-700 [&_a]:text-zinc-900 [&_a]:underline [&_h1]:mb-2 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:font-semibold [&_li]:ml-5 [&_ol]:my-3 [&_ol]:list-decimal [&_p]:mb-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-zinc-200 [&_pre]:bg-white [&_pre]:p-3 [&_ul]:my-3 [&_ul]:list-disc"
-                    dangerouslySetInnerHTML={{ __html: d.content }}
-                  />
-                </article>
-              ))}
+                    key={docId}
+                    className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-100 pb-3">
+                      <h3 className="text-[15px] font-semibold text-zinc-950">
+                        {title}
+                      </h3>
+                      <p className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500">
+                        {renderDocDate(createdAt, updatedAt)}
+                      </p>
+                    </div>
+                    <article
+                      className="mt-4 rounded-xl border border-zinc-100 bg-zinc-50/40 p-4 text-sm leading-relaxed text-zinc-700 [&_a]:text-zinc-900 [&_a]:underline [&_h1]:mb-2 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:font-semibold [&_li]:ml-5 [&_ol]:my-3 [&_ol]:list-decimal [&_p]:mb-3 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-zinc-200 [&_pre]:bg-white [&_pre]:p-3 [&_ul]:my-3 [&_ul]:list-disc"
+                      dangerouslySetInnerHTML={{ __html: content }}
+                    />
+                  </article>
+                );
+              })}
             </div>
           )}
         </div>

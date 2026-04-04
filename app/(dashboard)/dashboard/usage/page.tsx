@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchModels, fetchTasks } from "@/lib/api";
+import { type ModelResponse, fetchModels, fetchTasks } from "@/lib/api";
 import { mockUsageRecords } from "@/lib/mock-data";
 import { UserHeader } from "@/components/layout/user-header";
 import { StatCard } from "@/components/cards/stat-card";
@@ -69,7 +69,7 @@ export default function UsagePage() {
   const totalSpend = (tasks ?? []).reduce((a, t) => a + t.total_cost, 0);
   const totalReq = (tasks ?? []).length;
   const topModel =
-    models?.find((m) => m.model_id === 1)?.fullname ?? "GPT-4o November 2024";
+    models?.find((m) => m.modelId === 1)?.fullname ?? "GPT-4o November 2024";
 
   return (
     <>
@@ -161,7 +161,7 @@ export default function UsagePage() {
             <SelectContent className="rounded-xl">
               <SelectItem value="all">All models</SelectItem>
               {(models ?? []).map((m) => (
-                <SelectItem key={m.model_id} value={String(m.model_id)}>
+                <SelectItem key={m.modelId} value={String(m.modelId)}>
                   {m.fullname}
                 </SelectItem>
               ))}
@@ -190,7 +190,7 @@ export default function UsagePage() {
                 </tr>
               ) : (
                 filtered.map((t) => {
-                  const m = models?.find((x) => x.model_id === t.model_id);
+                  const m = models?.find((x) => x.modelId === t.model_id);
                   return (
                     <tr
                       key={t.task_id}
