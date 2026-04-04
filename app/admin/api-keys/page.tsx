@@ -33,6 +33,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const PAGE_SIZE = 5;
 const API_KEY_FILTER_STATUSES: Array<"ALL" | AdminApiKeyStatus> = ["ALL", "ACTIVE", "INACTIVE", "REVOKED"];
@@ -267,6 +277,10 @@ export default function AdminApiKeysPage() {
   const [statusOverrides, setStatusOverrides] = useState<Record<number, AdminApiKeyStatus>>({});
   const [updatingApiKeyId, setUpdatingApiKeyId] = useState<number | null>(null);
   const [statusError, setStatusError] = useState("");
+  const [pendingStatusChange, setPendingStatusChange] = useState<{
+    item: AdminApiKeyListItemView;
+    nextStatus: AdminApiKeyStatus;
+  } | null>(null);
 
   const rangeBounds = useMemo(() => getRangeBounds(analyticsRange), [analyticsRange]);
 
@@ -292,6 +306,27 @@ export default function AdminApiKeysPage() {
       adminFetchApiKeyAnalytics(
         toApiDateTime(monthBounds.from),
         toApiDateTime(monthBounds.to)
+      ),
+  });
+
+  const prevMonthBounds = useMemo(() => {
+    const to = new Date(monthBounds.from);
+    to.setDate(to.getDate() - 1);
+    to.setHours(23, 59, 59, 0);
+
+    const from = new Date(to);
+    from.setMonth(from.getMonth() - 1, 1);
+    from.setHours(0, 0, 0, 0);
+
+    return { from, to };
+  }, [monthBounds]);
+
+  const prevMonthAnalyticsQuery = useQuery({
+    queryKey: ["admin-api-key-prev-month-analytics"],
+    queryFn: () =>
+      adminFetchApiKeyAnalytics(
+        toApiDateTime(prevMonthBounds.from),
+        toApiDateTime(prevMonthBounds.to)
       ),
   });
 
@@ -359,13 +394,28 @@ export default function AdminApiKeysPage() {
   }).length;
   const createdThisMonthValue = Math.max(createdThisMonth, createdThisMonthFromList);
 
+  const createdPrevMonth = asNumber(prevMonthAnalyticsQuery.data?.totalCreated);
+  const deltaFromLastMonth = createdThisMonthValue - createdPrevMonth;
+  const percentageDelta = createdPrevMonth > 0
+    ? ((deltaFromLastMonth / createdPrevMonth) * 100).toFixed(1)
+    : "0.0";
+  const isDeltaPositive = deltaFromLastMonth >= 0;
+
   const getKeyStatus = (item: AdminApiKeyListItemView) => statusOverrides[item.apiKeyId] ?? item.status;
 
-  async function handleStatusChange(item: AdminApiKeyListItemView, nextStatus: AdminApiKeyStatus) {
+  function handleStatusChange(item: AdminApiKeyListItemView, nextStatus: AdminApiKeyStatus) {
     const currentStatus = getKeyStatus(item);
     if (nextStatus === currentStatus) {
       return;
     }
+    setPendingStatusChange({ item, nextStatus });
+  }
+
+  async function confirmStatusChange() {
+    if (!pendingStatusChange) return;
+
+    const { item, nextStatus } = pendingStatusChange;
+    setPendingStatusChange(null);
 
     setStatusError("");
     setUpdatingApiKeyId(item.apiKeyId);
@@ -397,6 +447,10 @@ export default function AdminApiKeysPage() {
     }
   }
 
+  function cancelStatusChange() {
+    setPendingStatusChange(null);
+  }
+
   return (
     <div className="space-y-6">
       <AdminHeader
@@ -404,9 +458,9 @@ export default function AdminApiKeysPage() {
         subtitle="Review key inventory, usage trends, and access state across the platform."
       />
 
-      {insightsQuery.error || analyticsQuery.error || monthAnalyticsQuery.error || keysQuery.error || allKeysQuery.error ? (
+      {insightsQuery.error || analyticsQuery.error || monthAnalyticsQuery.error || prevMonthAnalyticsQuery.error || keysQuery.error || allKeysQuery.error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {formatError(insightsQuery.error ?? analyticsQuery.error ?? monthAnalyticsQuery.error ?? keysQuery.error ?? allKeysQuery.error)}
+          {formatError(insightsQuery.error ?? analyticsQuery.error ?? monthAnalyticsQuery.error ?? prevMonthAnalyticsQuery.error ?? keysQuery.error ?? allKeysQuery.error)}
         </div>
       ) : null}
 
@@ -418,14 +472,14 @@ export default function AdminApiKeysPage() {
           labelClassName="text-zinc-400"
           valueClassName="text-white"
           delta={
-            insightsQuery.isLoading
+            insightsQuery.isLoading || prevMonthAnalyticsQuery.isLoading
               ? {
                   text: "Loading key metrics...",
                   positive: true,
                 }
               : {
-                  text: `Created this month: ${createdThisMonthValue.toLocaleString()}`,
-                  positive: true,
+                  text: `${isDeltaPositive ? "↑" : "↓"} ${percentageDelta}% from past month`,
+                  positive: isDeltaPositive,
                 }
           }
         />
@@ -448,7 +502,7 @@ export default function AdminApiKeysPage() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-zinc-950">Key activity</h2>
-              <p className="text-xs text-zinc-500">Active and revoked keys for the selected range.</p>
+              {/* <p className="text-xs text-zinc-500">Active and revoked keys for the selected range.</p> */}
             </div>
             <Select value={analyticsRange} onValueChange={(value) => setAnalyticsRange(value as AnalyticsRange)}>
               <SelectTrigger className="h-9 w-[150px] rounded-xl border-zinc-200 text-xs">
@@ -668,6 +722,41 @@ export default function AdminApiKeysPage() {
           </div>
         </div>
       </section>
+
+      {pendingStatusChange && (
+        <AlertDialog open={true} onOpenChange={(open) => { if (!open) cancelStatusChange(); }}>
+          <AlertDialogContent className="rounded-2xl border border-zinc-200 p-0 font-montserrat">
+            <AlertDialogHeader className="items-start px-4 pt-4 text-left">
+              <AlertDialogTitle>
+                Confirm API key status update
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Review the status change for key #{pendingStatusChange.item.apiKeyId} ({pendingStatusChange.item.description || "Unnamed key"}). This will update the key state immediately.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="relative mx-4 my-3 rounded-xl border border-zinc-200 bg-zinc-50 py-5 px-3 text-xs">
+              <span className="absolute -top-2 left-3 bg-zinc-50 px-1 text-[9px] font-medium uppercase tracking-wide text-zinc-500">Change summary</span>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-medium text-zinc-500">Current</span>
+                  <span className="inline-flex rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-700">{getKeyStatus(pendingStatusChange.item)}</span>
+                </div>
+                <div className="h-4 w-px bg-zinc-200" />
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold text-zinc-700">New</span>
+                  <span className="inline-flex rounded-md border border-zinc-900 bg-zinc-950 px-2.5 py-1 text-sm font-semibold text-white">{pendingStatusChange.nextStatus}</span>
+                </div>
+              </div>
+            </div>
+            <AlertDialogFooter className="!mx-0 !mb-0 rounded-b-2xl border-t border-zinc-100 bg-zinc-50 px-4 py-3">
+              <AlertDialogCancel className="rounded-lg border border-zinc-200 hover:bg-zinc-50">Cancel</AlertDialogCancel>
+              <AlertDialogAction className="rounded-lg bg-zinc-950 text-white hover:bg-zinc-900" onClick={confirmStatusChange}>
+                {updatingApiKeyId === pendingStatusChange.item.apiKeyId ? "Updating..." : "Yes, update"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }
