@@ -15,6 +15,10 @@ import {
   getBillingConfigById as apiGetBillingConfigById,
   getAdminUsageSummaryByApiKey as apiGetAdminUsageSummaryByApiKey,
   getAdminUsageSummaryByModel as apiGetAdminUsageSummaryByModel,
+  getAdminUserAnalytics as apiGetAdminUserAnalytics,
+  getAdminUserInsights as apiGetAdminUserInsights,
+  getAdminUserList as apiGetAdminUserList,
+  updateAdminUserStatus as apiUpdateAdminUserStatus,
   listBillingConfigs as apiListBillingConfigs,
   listDocumentationByModel as apiListDocumentationByModel,
   recordUsage as apiRecordUsage,
@@ -26,13 +30,18 @@ import {
   type BillingConfigResponse,
   type BillingConfigUpdateBody,
   type BillingInsightsResponse,
+  type DailyUserAnalyticsResponse,
   type ModelControlDetailsResponse,
   type DocumentationCreateBody,
   type DocumentationResponse,
   type DocumentationUpdateBody,
   type ModelResponse,
+  type AdminUserInsightsResponse,
+  type PaginatedUserListResponse,
   type ProviderResponse,
   type RecordUsageBody,
+  type UserRole,
+  type UserStatus,
   type UsageRecordResponse,
   type UsageSummaryResponse,
 } from "@/lib/api";
@@ -84,6 +93,76 @@ function toAdminModel(model: ModelResponse): AdminModel {
 
 export async function adminFetchUsers(): Promise<AdminUser[]> {
   return mock(adminUsers);
+}
+
+export type AdminUsersPageItem = {
+  userId: number;
+  fullName: string;
+  email: string;
+  profileImage: string | null;
+  emailSubscribed: boolean;
+  status: UserStatus;
+  role: UserRole;
+};
+
+export type AdminUsersListResult = {
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  users: AdminUsersPageItem[];
+  isLastPage: boolean;
+};
+
+export async function adminFetchUserInsights(): Promise<AdminUserInsightsResponse> {
+  return apiGetAdminUserInsights();
+}
+
+export async function adminFetchUserAnalytics(from: string, to: string): Promise<{
+  dailyAnalytics: DailyUserAnalyticsResponse[];
+  totalCreated: number;
+  totalDeleted: number;
+  totalRevoked: number;
+}> {
+  return apiGetAdminUserAnalytics(from, to);
+}
+
+export async function adminFetchUsersPage(params: {
+  page: number;
+  size: number;
+  role?: UserRole;
+  status?: UserStatus;
+}): Promise<AdminUsersListResult> {
+  const result: PaginatedUserListResponse = await apiGetAdminUserList(params);
+  return {
+    page: result.page,
+    size: result.size,
+    totalElements: result.totalElements,
+    totalPages: result.totalPages,
+    isLastPage: result.isLastPage,
+    users: result.users.map((user) => ({
+      userId: user.userId,
+      fullName: user.fullName,
+      email: user.email,
+      profileImage: user.profileImage,
+      emailSubscribed: user.emailSubscribed,
+      status: user.status,
+      role: user.role ?? params.role ?? "USER",
+    })),
+  };
+}
+
+export async function adminUpdateUserStatus(userId: number, status: UserStatus): Promise<AdminUsersPageItem> {
+  const user = await apiUpdateAdminUserStatus(userId, status);
+  return {
+    userId: user.userId,
+    fullName: user.fullName,
+    email: user.email,
+    profileImage: user.profileImage,
+    emailSubscribed: user.emailSubscribed,
+    status: user.status,
+    role: user.role ?? "USER",
+  };
 }
 
 export async function adminFetchApiKeys(): Promise<AdminApiKey[]> {

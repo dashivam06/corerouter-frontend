@@ -44,6 +44,7 @@ const PROVIDERS_BASE = `${API_BASE_URL}/api/v1/providers`;
 const BILLING_BASE = `${API_BASE_URL}/api/v1/billing`;
 const ADMIN_BILLING_BASE = `${API_BASE_URL}/api/v1/admin/billing`;
 const ADMIN_DOCUMENTATION_BASE = `${API_BASE_URL}/api/v1/admin/documentation`;
+const ADMIN_USERS_BASE = `${API_BASE_URL}/api/v1/admin/users`;
 const WALLET_TOPUP_BASE = `${API_BASE_URL}/api/wallet/topup`;
 
 // API Key Types
@@ -204,6 +205,53 @@ export type UserUsageInsightsResponse = {
   avgCostPerRequestChangePercent: number;
 };
 
+export type UserStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "BANNED" | "DELETED";
+
+export type UserRole = "USER" | "ADMIN";
+
+export type UserProfileResponse = {
+  userId: number;
+  fullName: string;
+  email: string;
+  profileImage: string | null;
+  emailSubscribed: boolean;
+  status: UserStatus;
+  role?: UserRole;
+};
+
+export type PaginatedUserListResponse = {
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  users: UserProfileResponse[];
+  isLastPage: boolean;
+};
+
+export type AdminUserInsightsResponse = {
+  totalUsers: number;
+  usersChangeFromPastMonthPercent: number;
+  activeUsers: number;
+  inactiveUsers: number;
+  activeSharePercent: number;
+  suspendedUsers: number;
+  adminUsers: number;
+};
+
+export type DailyUserAnalyticsResponse = {
+  date: string;
+  created: number;
+  deleted: number;
+  revoked: number;
+};
+
+export type UserAnalyticsResponse = {
+  dailyAnalytics: DailyUserAnalyticsResponse[];
+  totalCreated: number;
+  totalDeleted: number;
+  totalRevoked: number;
+};
+
 export type PaginatedResponse<T> = {
   content: T[];
   totalElements: number;
@@ -319,7 +367,7 @@ type VerifyOtpResponse = {
   profileCompletionTtlMinutes: number;
 };
 
-type UserProfileResponse = {
+type AuthUserProfileResponse = {
   userId: number;
   fullName: string;
   email: string;
@@ -419,7 +467,7 @@ function redirectToLogin() {
   }
 }
 
-function toMockUser(profile: UserProfileResponse, fallback?: Partial<MockUser>): MockUser {
+function toMockUser(profile: AuthUserProfileResponse, fallback?: Partial<MockUser>): MockUser {
   const mappedStatus =
     profile.status === "SUSPENDED"
       ? "SUSPENDED"
@@ -1176,6 +1224,95 @@ async function requestAdminDocumentation<TRes>(
   );
 }
 
+async function requestAdminUsers<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${ADMIN_USERS_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError(
+      "You don't have permission to perform this action.",
+      403,
+      parsed?.errors ?? []
+    );
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 403) {
+      const parsed = await parseResponse<TRes>(response);
+      throw new ApiRequestError(
+        "You don't have permission to perform this action.",
+        403,
+        parsed?.errors ?? []
+      );
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
 async function requestWalletTopUp<TRes>(
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
@@ -1419,7 +1556,7 @@ export async function getProfile(
   accessToken: string,
   fallback?: Partial<MockUser>
 ): Promise<MockUser> {
-  const data = await requestUserProfile<UserProfileResponse>("GET", "", undefined, accessToken);
+  const data = await requestUserProfile<AuthUserProfileResponse>("GET", "", undefined, accessToken);
   return toMockUser(data, fallback);
 }
 
@@ -1428,7 +1565,7 @@ export async function updateProfile(
   body: { fullName?: string; profileImage?: string; emailSubscribed?: boolean }
 ): Promise<MockUser> {
   try {
-    const data = await requestUserProfile<UserProfileResponse>("PATCH", "", body, accessToken);
+    const data = await requestUserProfile<AuthUserProfileResponse>("PATCH", "", body, accessToken);
     return toMockUser(data);
   } catch (error) {
     if (error instanceof ApiRequestError) {
@@ -1644,6 +1781,38 @@ export async function topUpFailure(
   if (data) params.set("data", data);
   if (transactionUuid) params.set("transaction_uuid", transactionUuid);
   await requestWalletTopUp<null>("GET", `/failure${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export async function getAdminUserInsights(): Promise<AdminUserInsightsResponse> {
+  return requestAdminUsers<AdminUserInsightsResponse>("GET", "/insights");
+}
+
+export async function getAdminUserAnalytics(from: string, to: string): Promise<UserAnalyticsResponse> {
+  return requestAdminUsers<UserAnalyticsResponse>(
+    "GET",
+    `/analytics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  );
+}
+
+export async function getAdminUserList(params: {
+  page?: number;
+  size?: number;
+  role?: UserRole;
+  status?: UserStatus;
+}): Promise<PaginatedUserListResponse> {
+  const query = new URLSearchParams();
+  query.set("page", String(params.page ?? 0));
+  query.set("size", String(params.size ?? 20));
+  if (params.role) query.set("role", params.role);
+  if (params.status) query.set("status", params.status);
+  return requestAdminUsers<PaginatedUserListResponse>("GET", `/list?${query.toString()}`);
+}
+
+export async function updateAdminUserStatus(userId: number, status: UserStatus): Promise<UserProfileResponse> {
+  return requestAdminUsers<UserProfileResponse>(
+    "PATCH",
+    `/${userId}/status?status=${encodeURIComponent(status)}`
+  );
 }
 
 export async function getAdminBillingInsights(): Promise<BillingInsightsResponse> {
