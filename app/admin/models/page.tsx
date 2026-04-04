@@ -1,14 +1,23 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { MoreHorizontal, Plus } from "lucide-react";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { AdminStatCard } from "@/components/admin/stat-card";
-import { adminCreateProvider, adminFetchModels, adminFetchProviders } from "@/lib/admin-api";
+import {
+  adminChangeProviderStatus,
+  adminCreateProvider,
+  adminFetchBillingConfigs,
+  adminFetchDocumentationByModel,
+  adminDeleteProvider,
+  adminFetchModels,
+  adminFetchProviders,
+} from "@/lib/admin-api";
 import { uploadImageToCloudinary } from "@/lib/cloudinary";
-import { formatRelative } from "@/lib/formatters";
+import { formatRelative, parseUtcTimestamp } from "@/lib/formatters";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -26,6 +35,7 @@ function usernamePill(username: string) {
 }
 
 export default function AdminModelsPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { data: models } = useQuery({
     queryKey: ["admin-models"],
@@ -34,6 +44,10 @@ export default function AdminModelsPage() {
   const { data: providers } = useQuery({
     queryKey: ["admin-providers"],
     queryFn: adminFetchProviders,
+  });
+  const { data: billingConfigs } = useQuery({
+    queryKey: ["admin-billing-configs"],
+    queryFn: adminFetchBillingConfigs,
   });
 
   const list = models ?? [];
@@ -52,8 +66,11 @@ export default function AdminModelsPage() {
   const [providerError, setProviderError] = useState<string | null>(null);
   const [isSelectingProviders, setIsSelectingProviders] = useState(false);
   const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set());
-  const [deleteProviderDialog, setDeleteProviderDialog] = useState(false);
-  const [providerToDelete, setProviderToDelete] = useState<string | null>(null);
+  const [providerActionDialogOpen, setProviderActionDialogOpen] = useState(false);
+  const [providerAction, setProviderAction] = useState<"disable" | "delete">("delete");
+  const [providerActionTargets, setProviderActionTargets] = useState<string[]>([]);
+  const [providerActionSubmitting, setProviderActionSubmitting] = useState(false);
+  const [providerActionError, setProviderActionError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -83,6 +100,118 @@ export default function AdminModelsPage() {
       }))
       .sort((a, b) => b.count - a.count);
   }, [list]);
+
+  const providerLogoByName = useMemo(() => {
+    return providerList.reduce<Record<string, string | null>>((acc, provider) => {
+      acc[provider.providerName] = provider.logo ?? null;
+      return acc;
+    }, {});
+  }, [providerList]);
+
+  const billingByModelId = useMemo(() => {
+    return (billingConfigs ?? []).reduce<Record<number, string>>((acc, config) => {
+      acc[config.modelId] = config.pricingType;
+      return acc;
+    }, {});
+  }, [billingConfigs]);
+
+  const documentationQueries = useQueries({
+    queries: list.map((model) => ({
+      queryKey: ["admin-model-documentation-count", model.model_id],
+      queryFn: async () => {
+        try {
+          const docs = await adminFetchDocumentationByModel(model.model_id);
+          return docs.length;
+        } catch (error) {
+          const message = error instanceof Error ? error.message.toLowerCase() : "";
+          if (message.includes("404") || message.includes("not found")) {
+            return 0;
+          }
+          throw error;
+        }
+      },
+      enabled: list.length > 0,
+    })),
+  });
+
+  const docsCountByModelId = useMemo(() => {
+    const map: Record<number, number> = {};
+    list.forEach((model, index) => {
+      const count = documentationQueries[index]?.data;
+      if (typeof count === "number") {
+        map[model.model_id] = count;
+      }
+    });
+    return map;
+  }, [documentationQueries, list]);
+
+  const docsStateByModelId = useMemo(() => {
+    const map: Record<number, "loading" | "ready" | "error"> = {};
+    list.forEach((model, index) => {
+      const query = documentationQueries[index];
+      if (!query || query.isPending) {
+        map[model.model_id] = "loading";
+      } else if (query.isError) {
+        map[model.model_id] = "error";
+      } else {
+        map[model.model_id] = "ready";
+      }
+    });
+    return map;
+  }, [documentationQueries, list]);
+
+  const openProviderActionDialog = (action: "disable" | "delete", targets: string[]) => {
+    const uniqueTargets = Array.from(new Set(targets.filter(Boolean)));
+    if (uniqueTargets.length === 0) return;
+    setProviderAction(action);
+    setProviderActionTargets(uniqueTargets);
+    setProviderActionError(null);
+    setProviderActionDialogOpen(true);
+  };
+
+  const executeProviderAction = async () => {
+    const targetProviders = providerList.filter((provider) =>
+      providerActionTargets.includes(provider.providerName)
+    );
+
+    if (targetProviders.length === 0) {
+      setProviderActionError("No matching providers found.");
+      return;
+    }
+
+    setProviderActionSubmitting(true);
+    setProviderActionError(null);
+
+    try {
+      if (providerAction === "disable") {
+        await Promise.all(
+          targetProviders.map((provider) =>
+            adminChangeProviderStatus(provider.providerId, "DISABLED")
+          )
+        );
+      } else {
+        await Promise.all(
+          targetProviders.map((provider) => adminDeleteProvider(provider.providerId))
+        );
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin-providers"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin-models"] }),
+      ]);
+
+      setProviderActionDialogOpen(false);
+      setProviderActionTargets([]);
+      setSelectedProviders(new Set());
+      setIsSelectingProviders(false);
+    } catch (error) {
+      setProviderActionError(
+        error instanceof Error ? error.message : "Failed to apply provider action."
+      );
+    } finally {
+      setProviderActionSubmitting(false);
+    }
+  };
 
   const handleFileSelect = (file: File) => {
     setProviderImage(file);
@@ -154,9 +283,7 @@ export default function AdminModelsPage() {
               <span className="text-xs text-zinc-500">{selectedProviders.size} selected</span>
               <button
                 onClick={() => {
-                  console.log("Disabling providers:", Array.from(selectedProviders));
-                  alert(`Disabled ${Array.from(selectedProviders).join(", ")}`);
-                  setSelectedProviders(new Set());
+                  openProviderActionDialog("disable", Array.from(selectedProviders));
                 }}
                 disabled={selectedProviders.size === 0}
                 className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -165,9 +292,7 @@ export default function AdminModelsPage() {
               </button>
               <button
                 onClick={() => {
-                  const first = Array.from(selectedProviders)[0];
-                  setProviderToDelete(first);
-                  setDeleteProviderDialog(true);
+                  openProviderActionDialog("delete", Array.from(selectedProviders));
                 }}
                 disabled={selectedProviders.size === 0}
                 className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -196,9 +321,10 @@ export default function AdminModelsPage() {
                   Select
                 </DropdownMenuItem>
                 <DropdownMenuItem className="text-red-600" onClick={() => {
-                  const allProviders = Array.from(new Set(list.map(m => m.provider)));
-                  console.log("Deleting all providers:", allProviders);
-                  alert(`Delete all ${allProviders.length} provider(s)?`);
+                  openProviderActionDialog(
+                    "delete",
+                    providerList.map((provider) => provider.providerName)
+                  );
                 }}>
                   Delete all
                 </DropdownMenuItem>
@@ -263,11 +389,15 @@ export default function AdminModelsPage() {
                     <DropdownMenuItem>
                       Edit provider
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => openProviderActionDialog("disable", [providerName])}
+                    >
+                      Disable provider
+                    </DropdownMenuItem>
                     <DropdownMenuItem 
                       className="text-red-600"
                       onClick={() => {
-                        setProviderToDelete(providerName);
-                        setDeleteProviderDialog(true);
+                        openProviderActionDialog("delete", [providerName]);
                       }}
                     >
                       Delete provider
@@ -557,7 +687,15 @@ export default function AdminModelsPage() {
                   <td className="px-4 py-3 align-top">
                     <div className="flex items-center gap-2">
                       <div className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 text-xs font-semibold text-zinc-700">
-                        {m.provider.slice(0, 2).toUpperCase()}
+                        {providerLogoByName[m.provider] ? (
+                          <img
+                            src={providerLogoByName[m.provider] as string}
+                            alt={m.provider}
+                            className="h-full w-full rounded-full object-cover"
+                          />
+                        ) : (
+                          m.provider.slice(0, 2).toUpperCase()
+                        )}
                       </div>
                       <span className="text-zinc-600">{m.provider}</span>
                     </div>
@@ -575,13 +713,17 @@ export default function AdminModelsPage() {
                     <StatusBadge status={m.status} />
                   </td>
                   <td className="px-4 py-3 align-top text-xs text-zinc-600">
-                    Missing
+                    {billingByModelId[m.model_id] ?? "Not set"}
                   </td>
                   <td className="px-4 py-3 align-top text-xs text-zinc-500">
-                    None
+                    {docsStateByModelId[m.model_id] === "error"
+                      ? "Unavailable"
+                      : docsStateByModelId[m.model_id] === "loading"
+                        ? "Loading..."
+                        : `${docsCountByModelId[m.model_id] ?? 0} section${(docsCountByModelId[m.model_id] ?? 0) === 1 ? "" : "s"}`}
                   </td>
                   <td className="px-4 py-3 align-top text-xs text-zinc-400">
-                    {formatRelative(new Date(m.updated_at))}
+                    {formatRelative(parseUtcTimestamp(m.updated_at))}
                   </td>
                   <td className="px-4 py-3 align-top text-right">
                     <DropdownMenu>
@@ -594,7 +736,7 @@ export default function AdminModelsPage() {
                       <DropdownMenuContent align="end" className="rounded-xl">
                         <DropdownMenuItem
                           onClick={() => {
-                            window.location.href = `/admin/models/${m.model_id}`;
+                            router.push(`/admin/models/${m.model_id}`);
                           }}
                         >
                           Edit
@@ -618,53 +760,75 @@ export default function AdminModelsPage() {
         </div>
       )}
 
-      {/* Delete Provider Confirmation Dialog */}
-      <Dialog open={deleteProviderDialog} onOpenChange={setDeleteProviderDialog}>
+      {/* Provider Action Confirmation Dialog */}
+      <Dialog open={providerActionDialogOpen} onOpenChange={setProviderActionDialogOpen}>
         <DialogContent className="sm:max-w-[500px] font-[Montserrat]">
           <DialogHeader>
-            <DialogTitle className="font-[Montserrat] text-xl font-bold">Delete Provider?</DialogTitle>
+            <DialogTitle className="font-[Montserrat] text-xl font-bold">
+              {providerAction === "disable" ? "Disable Provider?" : "Delete Provider?"}
+            </DialogTitle>
             <DialogDescription className="font-[Montserrat]">
-              This action will delete the provider and all respective models will be turned off and shut down.
+              {providerAction === "disable"
+                ? "This action sets provider status to DISABLED and affects all linked models."
+                : "This action soft-deletes provider(s) and affects all linked models."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-              <p className="text-sm font-semibold text-red-900">Warning</p>
-              <p className="mt-2 text-xs text-red-700">
-                All models from <strong>{providerToDelete}</strong> will be disabled and shut down. This action cannot be undone.
+            <div className={`rounded-lg p-4 ${providerAction === "disable" ? "border border-amber-200 bg-amber-50" : "border border-red-200 bg-red-50"}`}>
+              <p className={`text-sm font-semibold ${providerAction === "disable" ? "text-amber-900" : "text-red-900"}`}>
+                Warning
               </p>
+              <p className={`mt-2 text-xs ${providerAction === "disable" ? "text-amber-700" : "text-red-700"}`}>
+                {providerAction === "disable"
+                  ? "Selected providers will be disabled. Linked models may stop serving requests."
+                  : "Selected providers will be deleted. This action cannot be undone."}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-zinc-700">Target providers:</p>
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 max-h-24 overflow-y-auto">
+                <ul className="space-y-1 text-xs text-zinc-600">
+                  {providerActionTargets.map((providerName) => (
+                    <li key={providerName}>• {providerName}</li>
+                  ))}
+                </ul>
+              </div>
             </div>
             <div className="space-y-2">
               <p className="text-xs font-medium text-zinc-700">Affected models:</p>
               <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 max-h-32 overflow-y-auto">
                 <ul className="space-y-1 text-xs text-zinc-600">
                   {list
-                    .filter(m => m.provider === providerToDelete)
+                    .filter((m) => providerActionTargets.includes(m.provider))
                     .map(m => (
-                      <li key={m.model_id}>• {m.fullname}</li>
+                      <li key={m.model_id}>• {m.fullname} ({m.provider})</li>
                     ))}
                 </ul>
               </div>
             </div>
+            {providerActionError ? (
+              <p className="text-sm text-red-600">{providerActionError}</p>
+            ) : null}
           </div>
           <DialogFooter className="font-[Montserrat]">
             <button
               type="button"
-              onClick={() => setDeleteProviderDialog(false)}
+              onClick={() => setProviderActionDialogOpen(false)}
               className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 font-[Montserrat]"
             >
               Cancel
             </button>
             <button
               type="button"
-              onClick={() => {
-                console.log("Deleting provider:", providerToDelete);
-                setDeleteProviderDialog(false);
-                setProviderToDelete(null);
-              }}
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 font-[Montserrat]"
+              onClick={executeProviderAction}
+              disabled={providerActionSubmitting}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold text-white font-[Montserrat] disabled:opacity-50 ${providerAction === "disable" ? "bg-amber-600 hover:bg-amber-700" : "bg-red-600 hover:bg-red-700"}`}
             >
-              Delete provider
+              {providerActionSubmitting
+                ? "Applying..."
+                : providerAction === "disable"
+                  ? "Disable provider"
+                  : "Delete provider"}
             </button>
           </DialogFooter>
         </DialogContent>

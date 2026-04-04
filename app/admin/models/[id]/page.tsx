@@ -1,289 +1,496 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { ChevronLeft, ChevronDown } from "lucide-react";
+import { useParams } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
 import {
-  adminFetchModels,
-  adminFetchTasks,
-  adminFetchUsageRecords,
-  adminFetchApiKeys,
+  adminCreateBillingConfig,
+  adminCreateDocumentation,
+  adminFetchBillingConfigByModel,
+  adminFetchDocumentationByModel,
+  adminFetchModelById,
+  adminFetchModelControlDetails,
+  adminFetchProviders,
+  adminUpdateBillingConfig,
+  adminUpdateDocumentation,
 } from "@/lib/admin-api";
-import { AdminHeader } from "@/components/admin/admin-header";
-import { AdminStatCard } from "@/components/admin/stat-card";
-import { StatusBadge } from "@/components/shared/status-badge";
 import { JsonTreeEditor } from "@/components/admin/json-tree-editor";
-import { JsonPreview } from "@/components/admin/json-preview";
-import { PricingCalculator } from "@/components/admin/pricing-calculator";
 import { RichTextEditor } from "@/components/admin/rich-text-editor";
-import { formatRelative, formatNPR } from "@/lib/formatters";
-import type { AdminModel, AdminTask, AdminUsageRecord } from "@/lib/admin-mock-data";
-import { chartTheme } from "@/lib/charts";
+import { StatusBadge } from "@/components/shared/status-badge";
+import { formatRelative, parseUtcTimestamp } from "@/lib/formatters";
+import { updateModel } from "@/lib/api";
+import type {
+  BillingConfigResponse,
+  BillingPricingType,
+  DocumentationResponse,
+  ModelStatus,
+} from "@/lib/api";
+import type { AdminModelType } from "@/lib/admin-mock-data";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-export default function AdminModelDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
-  const { data: models } = useQuery({
-    queryKey: ["admin-models-detail"],
-    queryFn: adminFetchModels,
+type ModelFormState = {
+  fullname: string;
+  username: string;
+  provider: string;
+  endpointUrl: string;
+  description: string;
+  type: AdminModelType;
+  status: ModelStatus;
+};
+
+function toModelStatus(status: string): ModelStatus {
+  if (status === "ACTIVE" || status === "INACTIVE" || status === "DEPRECATED" || status === "ARCHIVED") {
+    return status;
+  }
+  return "INACTIVE";
+}
+
+export default function AdminModelDetailPage() {
+  const params = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
+  const modelId = Number(params?.id);
+
+  const {
+    data: controlDetails,
+    isPending: controlDetailsPending,
+    isError: controlDetailsError,
+  } = useQuery({
+    queryKey: ["admin-model-control-details", modelId],
+    queryFn: () => adminFetchModelControlDetails(modelId),
+    enabled: Number.isFinite(modelId),
   });
-  const { data: tasks } = useQuery({
-    queryKey: ["admin-tasks"],
-    queryFn: adminFetchTasks,
+  const {
+    data: fallbackModel,
+    isPending: fallbackModelPending,
+    isError: fallbackModelError,
+  } = useQuery({
+    queryKey: ["admin-model-by-id", modelId],
+    queryFn: () => adminFetchModelById(modelId),
+    enabled: Number.isFinite(modelId),
   });
-  const { data: usage } = useQuery({
-    queryKey: ["admin-usage-records"],
-    queryFn: adminFetchUsageRecords,
+  const {
+    data: fallbackDocumentation,
+  } = useQuery({
+    queryKey: ["admin-model-documentation", modelId],
+    queryFn: () => adminFetchDocumentationByModel(modelId),
+    enabled: Number.isFinite(modelId),
   });
-  const { data: apiKeys } = useQuery({
-    queryKey: ["admin-api-keys"],
-    queryFn: adminFetchApiKeys,
+  const {
+    data: fallbackBilling,
+  } = useQuery<BillingConfigResponse | null>({
+    queryKey: ["admin-model-billing-config", modelId],
+    queryFn: async () => {
+      try {
+        return await adminFetchBillingConfigByModel(modelId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message.toLowerCase() : "";
+        if (message.includes("404") || message.includes("not found")) {
+          return null;
+        }
+        throw error;
+      }
+    },
+    enabled: Number.isFinite(modelId),
+  });
+  const { data: providers } = useQuery({
+    queryKey: ["admin-providers"],
+    queryFn: adminFetchProviders,
   });
 
-  const modelId = Number(params.id);
-  const model = useMemo(
-    () => (models ?? []).find((m) => m.model_id === modelId) ?? null,
-    [models, modelId]
-  );
+  const model = controlDetails?.model ?? fallbackModel ?? null;
+  const documentation = controlDetails?.documentation ?? fallbackDocumentation ?? [];
+  const billingConfig = controlDetails?.billing ?? fallbackBilling ?? null;
 
-  const [identityOpen, setIdentityOpen] = useState(true);
+  const [form, setForm] = useState<ModelFormState | null>(null);
+  const [modelSaving, setModelSaving] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [modelMessage, setModelMessage] = useState<string | null>(null);
 
-  if (!model) {
+  const docList = documentation;
+  const existingDoc = docList[0] ?? null;
+  const [docTitle, setDocTitle] = useState("");
+  const [docContent, setDocContent] = useState("");
+  const [docError, setDocError] = useState<string | null>(null);
+  const [docSubmitting, setDocSubmitting] = useState(false);
+  const [docMessage, setDocMessage] = useState<string | null>(null);
+
+  const [pricingType, setPricingType] = useState<BillingPricingType>("PER_TOKEN");
+  const [pricingMetadata, setPricingMetadata] = useState<Record<string, unknown>>({});
+  const [billingSaving, setBillingSaving] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const [billingMessage, setBillingMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!model) return;
+    setForm({
+      fullname: model.fullname,
+      username: model.username,
+      provider: model.provider,
+      endpointUrl: model.endpoint_url,
+      description: model.description,
+      type: model.type,
+      status: toModelStatus(model.status),
+    });
+  }, [model]);
+
+  useEffect(() => {
+    if (!billingConfig) return;
+    setPricingType(billingConfig.pricingType);
+    try {
+      const parsed = billingConfig.pricingMetadata
+        ? (JSON.parse(billingConfig.pricingMetadata) as Record<string, unknown>)
+        : {};
+      setPricingMetadata(parsed);
+    } catch {
+      setPricingMetadata({ raw: billingConfig.pricingMetadata });
+    }
+  }, [billingConfig]);
+
+  useEffect(() => {
+    if (!existingDoc) {
+      setDocTitle("");
+      setDocContent("");
+      return;
+    }
+    setDocTitle(existingDoc.title ?? "");
+    setDocContent(existingDoc.content ?? "");
+  }, [existingDoc?.docId]);
+
+  if (!Number.isFinite(modelId)) {
     return (
       <div className="py-20 text-center text-sm text-zinc-500">
-        Model not found.{" "}
-        <Link href="/admin/models" className="text-zinc-900 underline">
-          Back to models
-        </Link>
+        Invalid model ID. <Link href="/admin/models" className="text-zinc-900 underline">Back to models</Link>
       </div>
     );
   }
 
-  const contextualAlert = "No billing config — cannot bill requests. Set up billing ↓";
+  if ((controlDetailsPending && fallbackModelPending) || (model && !form)) {
+    return <div className="py-20 text-center text-sm text-zinc-500">Loading model...</div>;
+  }
+
+  if (controlDetailsError && fallbackModelError) {
+    return (
+      <div className="py-20 text-center text-sm text-zinc-500">
+        Failed to load model. <Link href="/admin/models" className="text-zinc-900 underline">Back to models</Link>
+      </div>
+    );
+  }
+
+  if (!model || !form) {
+    return (
+      <div className="py-20 text-center text-sm text-zinc-500">
+        Model not found. <Link href="/admin/models" className="text-zinc-900 underline">Back to models</Link>
+      </div>
+    );
+  }
+
+  const saveModel = async () => {
+    if (!form.fullname.trim() || !form.username.trim() || !form.provider.trim() || !form.endpointUrl.trim()) {
+      setModelError("Name, username, provider, and endpoint URL are required.");
+      return;
+    }
+
+    setModelSaving(true);
+    setModelError(null);
+    setModelMessage(null);
+
+    try {
+      await updateModel(modelId, {
+        fullname: form.fullname.trim(),
+        username: form.username.trim(),
+        provider: form.provider.trim(),
+        endpointUrl: form.endpointUrl.trim(),
+        description: form.description.trim(),
+        status: form.status,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["admin-model-control-details", modelId] });
+      await queryClient.invalidateQueries({ queryKey: ["admin-model-by-id", modelId] });
+      await queryClient.invalidateQueries({ queryKey: ["admin-models"] });
+      setModelMessage("Model updated.");
+    } catch (error) {
+      setModelError(error instanceof Error ? error.message : "Unable to update model.");
+    } finally {
+      setModelSaving(false);
+    }
+  };
+
+  const saveDocumentation = async () => {
+    if (docTitle.trim().length < 5) {
+      setDocError("Documentation title must be at least 5 characters.");
+      return;
+    }
+    if (docContent.trim().length < 10) {
+      setDocError("Documentation content must be at least 10 characters.");
+      return;
+    }
+
+    setDocSubmitting(true);
+    setDocError(null);
+    setDocMessage(null);
+
+    try {
+      if (existingDoc) {
+        await adminUpdateDocumentation(existingDoc.docId, {
+          title: docTitle.trim(),
+          content: docContent.trim(),
+        });
+      } else {
+        await adminCreateDocumentation(modelId, {
+          title: docTitle.trim(),
+          content: docContent.trim(),
+        });
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ["admin-model-control-details", modelId] });
+      await queryClient.invalidateQueries({ queryKey: ["admin-model-documentation", modelId] });
+      setDocMessage("Documentation saved.");
+    } catch (error) {
+      setDocError(error instanceof Error ? error.message : "Unable to save documentation.");
+    } finally {
+      setDocSubmitting(false);
+    }
+  };
+
+  const saveBilling = async () => {
+    setBillingSaving(true);
+    setBillingError(null);
+    setBillingMessage(null);
+
+    try {
+      const payload = {
+        pricingType,
+        pricingMetadata: JSON.stringify(pricingMetadata ?? {}),
+      };
+
+      if (billingConfig) {
+        await adminUpdateBillingConfig(billingConfig.billingId, payload);
+      } else {
+        await adminCreateBillingConfig({ modelId, ...payload });
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ["admin-model-control-details", modelId] });
+      await queryClient.invalidateQueries({ queryKey: ["admin-model-billing-config", modelId] });
+      setBillingMessage("Billing configuration saved.");
+    } catch (error) {
+      setBillingError(error instanceof Error ? error.message : "Unable to save billing configuration.");
+    } finally {
+      setBillingSaving(false);
+    }
+  };
+
+  const setFormField = <K extends keyof ModelFormState>(key: K, value: ModelFormState[K]) => {
+    setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
+  };
 
   return (
     <div>
-      <div className="sticky top-0 z-10 -mx-8 bg-white border-b border-zinc-100 px-8 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-[18px] font-semibold text-zinc-950">
-              {model.fullname}
-            </h1>
-            <span className="font-mono text-xs bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded-md">
-              {model.username}
-            </span>
-            <span className="text-sm text-zinc-400">{model.provider}</span>
-            <StatusBadge status={model.type} />
-            <div className="inline-flex items-center gap-2">
-              <StatusBadge status={model.status} />
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-xs text-zinc-400">
-              Updated {formatRelative(new Date(model.updated_at))}
-            </div>
-            <Link
-              href="/admin/models"
-              className="text-sm text-zinc-400 hover:text-zinc-700"
-            >
-              ← Models
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      {/* Contextual alert strip */}
-      <div className="mt-4 -mx-8 px-8">
-        <div className="w-full rounded-none border border-zinc-200 bg-white px-6 py-3 text-sm text-zinc-700">
-          {contextualAlert}
-        </div>
-      </div>
-
-      {/* ZONE 1 usage overview */}
-      <section className="mt-5">
-        <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <AdminStatCard
-            label="Total requests this month"
-            value="—"
-          />
-          <AdminStatCard
-            label="Total cost billed (रू)"
-            value={formatNPR(1250)}
-          />
-          <AdminStatCard
-            label="Avg cost/request"
-            value={formatNPR(0.42)}
-          />
-          <AdminStatCard
-            label="Active API keys on this model"
-            value="—"
-          />
-        </div>
-
-        <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <p className="mb-3 text-sm font-medium text-zinc-500">Daily cost stacked bar (30 days)</p>
-            <div className="h-[220px] rounded-xl border border-zinc-200 bg-white" />
-          </div>
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <p className="mb-3 text-sm font-medium text-zinc-500">Daily requests (30 days)</p>
-            <div className="h-[220px] rounded-xl border border-zinc-200 bg-white" />
-          </div>
-        </div>
-
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <div className="text-xs text-zinc-500">Top API key by spend</div>
-            <div className="mt-2 text-sm text-zinc-900">—</div>
-          </div>
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <div className="text-xs text-zinc-500">Top user by requests</div>
-            <div className="mt-2 text-sm text-zinc-900">—</div>
-          </div>
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-            <div className="text-xs text-zinc-500">Dormant signal</div>
-            <div className="mt-2 text-sm text-zinc-900">Stable usage ✓</div>
-          </div>
-        </div>
-      </section>
-
-      {/* ZONE 2 identity accordion */}
-      <section className="mt-6 border-t border-zinc-100 pt-6">
-        <button
-          type="button"
-          onClick={() => setIdentityOpen((o) => !o)}
-          className="w-full flex items-center justify-between py-4 border-b border-zinc-100"
-        >
-          <div>
-            <div className="text-[14px] font-semibold text-zinc-900">Identity</div>
-            <div className="text-xs text-zinc-400">
-              {model.provider} · {model.endpoint_url.slice(0, 26)}… · Created{" "}
-              {formatRelative(new Date(model.created_at))}
-            </div>
-          </div>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-100 pb-4">
+        <div>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-zinc-500">Edit</span>
-            <ChevronDown className={`size-4 text-zinc-400 ${identityOpen ? "rotate-180" : ""}`} />
+            <h1 className="text-lg font-semibold text-zinc-950">{model.fullname}</h1>
+            <StatusBadge status={model.status} />
+            <StatusBadge status={model.type} />
           </div>
-        </button>
+          <div className="mt-1 text-xs text-zinc-500">
+            Updated {formatRelative(parseUtcTimestamp(model.updated_at))}
+          </div>
+        </div>
+        <Link href="/admin/models" className="inline-flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-800">
+          <ChevronLeft className="size-4" /> Back to models
+        </Link>
+      </div>
 
-        {identityOpen ? (
-          <div className="pb-6 pt-6">
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              <div className="space-y-3">
-                <div className="text-sm font-medium text-zinc-900">{model.fullname}</div>
-                <div className="font-mono text-xs text-zinc-400">{model.username}</div>
-                <div className="text-sm text-zinc-500">{model.provider}</div>
-                <StatusBadge status={model.type} />
-              </div>
-              <div className="space-y-3">
-                <StatusBadge status={model.status} />
-                <div className="text-xs text-zinc-400">
-                  Created: {new Date(model.created_at).toLocaleString()}
-                </div>
-                <div className="text-xs text-zinc-400">
-                  Updated: {new Date(model.updated_at).toLocaleString()}
-                </div>
-                <div className="text-xs text-zinc-600">
-                  Endpoint: {model.endpoint_url}
-                </div>
-                <button className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700">
-                  Test endpoint
-                </button>
-              </div>
-              <div className="space-y-3">
-                <div className="text-sm font-medium text-zinc-900">Description</div>
-                <textarea
-                  className="min-h-[120px] w-full rounded-xl border border-zinc-200 p-3 text-sm outline-none focus:border-zinc-400"
-                  value={model.description}
-                  readOnly
-                />
-                <JsonTreeEditor
-                  value={model.metadata}
-                  onChange={() => {}}
-                />
-              </div>
-            </div>
-            <div className="mt-6 flex gap-3 border-t border-zinc-100 pt-6">
-              <button className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-700">
-                Cancel
-              </button>
-              <button className="rounded-xl bg-zinc-950 px-4 py-2 text-sm text-white hover:bg-zinc-900">
-                Save
-              </button>
-            </div>
-          </div>
+      <section className="rounded-2xl border border-zinc-200 bg-white p-5">
+        <div className="mb-4 text-sm font-semibold text-zinc-900">Model identity</div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="block">
+            <div className="mb-1 text-sm text-zinc-700">Full name</div>
+            <input
+              value={form.fullname}
+              onChange={(event) => setFormField("fullname", event.target.value)}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+            />
+          </label>
+
+          <label className="block">
+            <div className="mb-1 text-sm text-zinc-700">Username</div>
+            <input
+              value={form.username}
+              onChange={(event) => setFormField("username", event.target.value)}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm font-mono outline-none focus:border-zinc-400"
+            />
+          </label>
+
+          <label className="block">
+            <div className="mb-1 text-sm text-zinc-700">Provider</div>
+            <Select value={form.provider} onValueChange={(value) => setFormField("provider", value ?? "") }>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select provider" />
+              </SelectTrigger>
+              <SelectContent>
+                {(providers ?? []).map((providerItem) => (
+                  <SelectItem key={providerItem.providerId} value={providerItem.providerName}>
+                    {providerItem.providerName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+
+          <label className="block">
+            <div className="mb-1 text-sm text-zinc-700">Endpoint URL</div>
+            <input
+              value={form.endpointUrl}
+              onChange={(event) => setFormField("endpointUrl", event.target.value)}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+            />
+          </label>
+
+          <label className="block">
+            <div className="mb-1 text-sm text-zinc-700">Type</div>
+            <select
+              value={form.type}
+              onChange={(event) => setFormField("type", event.target.value as AdminModelType)}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+            >
+              <option value="LLM">LLM</option>
+              <option value="OCR">OCR</option>
+              <option value="OTHER">OTHER</option>
+            </select>
+          </label>
+
+          <label className="block">
+            <div className="mb-1 text-sm text-zinc-700">Status</div>
+            <select
+              value={form.status}
+              onChange={(event) => setFormField("status", event.target.value as ModelStatus)}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+            >
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="INACTIVE">INACTIVE</option>
+              <option value="DEPRECATED">DEPRECATED</option>
+              <option value="ARCHIVED">ARCHIVED</option>
+            </select>
+          </label>
+
+          <label className="block sm:col-span-2">
+            <div className="mb-1 text-sm text-zinc-700">Description</div>
+            <textarea
+              value={form.description}
+              onChange={(event) => setFormField("description", event.target.value)}
+              rows={4}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+            />
+          </label>
+        </div>
+
+        {modelError ? (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{modelError}</div>
         ) : null}
+        {modelMessage ? (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{modelMessage}</div>
+        ) : null}
+
+        <div className="mt-5 flex justify-end">
+          <button
+            type="button"
+            onClick={saveModel}
+            disabled={modelSaving}
+            className="rounded-xl bg-zinc-950 px-4 py-2 text-sm text-white hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {modelSaving ? "Saving..." : "Update model details"}
+          </button>
+        </div>
       </section>
 
-      {/* ZONE 3 Documentation */}
-      <section className="mt-6 border-t border-zinc-100 pt-6">
-        <div className="rounded-2xl border border-zinc-200 overflow-hidden">
-          <div className="grid grid-cols-[200px_1fr] gap-0">
-            <div className="bg-zinc-50 border-r border-zinc-200">
-              <div className="px-4 py-3 text-sm text-zinc-400 border-b border-zinc-100">
-                Overview
-              </div>
-              <div className="px-4 py-3 text-sm text-zinc-400 hover:text-zinc-700 cursor-pointer border-t border-zinc-100">
-                + Add section
-              </div>
+      <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5">
+        <div className="mb-4 text-sm font-semibold text-zinc-900">Documentation</div>
+        <div className="mb-4 text-xs text-zinc-500">
+          {existingDoc ? "Single documentation record for this model." : "No documentation yet. Save to create it."}
+        </div>
+        <div>
+          <div className="space-y-4">
+            <div>
+              <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-zinc-500">Title</label>
+              <input
+                value={docTitle}
+                onChange={(event) => setDocTitle(event.target.value)}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              />
             </div>
-            <div className="bg-white p-6">
-              <div className="text-sm font-medium text-zinc-900">Documentation editor</div>
-              <div className="mt-4">
-                <RichTextEditor value={""} onChange={() => {}} />
-              </div>
-              <div className="mt-4 flex items-center justify-between border-t border-zinc-100 pt-4">
-                <div className="text-xs text-green-600">● Saved · 2 min ago</div>
-                <div className="flex items-center gap-4 text-xs text-zinc-400">
-                  <span>Duplicate</span>
-                  <span className="text-red-500">Delete section</span>
-                </div>
-              </div>
+            <div>
+              <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-zinc-500">Content</label>
+              <RichTextEditor value={docContent} onChange={setDocContent} />
+            </div>
+
+            {docError ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{docError}</div>
+            ) : null}
+            {docMessage ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{docMessage}</div>
+            ) : null}
+
+            <div className="flex flex-wrap items-center gap-3 border-t border-zinc-100 pt-4">
+              <button
+                type="button"
+                onClick={saveDocumentation}
+                disabled={docSubmitting}
+                className="rounded-xl bg-zinc-950 px-4 py-2 text-sm text-white hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {docSubmitting ? "Saving..." : existingDoc ? "Update documentation" : "Create documentation"}
+              </button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ZONE 4 Billing */}
-      <section className="mt-6 border-t border-zinc-100 pt-6">
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <div className="flex items-center justify-between gap-4">
-            <div className="text-sm font-semibold text-zinc-900">Billing configuration</div>
-          </div>
-          <div className="mt-5">
-            <JsonTreeEditor value={{}} onChange={() => {}} />
-          </div>
-          <div className="mt-5">
-            <PricingCalculator pricingType="PER_TOKEN" pricingMetadata={{ rates: {} }} />
-          </div>
-          <div className="mt-5">
-            <JsonPreview value={{}} />
-          </div>
-        </div>
-      </section>
+      <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5">
+        <div className="mb-4 text-sm font-semibold text-zinc-900">Billing configuration</div>
 
-      {/* ZONE 5 Change log */}
-      <section className="mt-6 border-t border-zinc-100 pt-6 pb-6">
-        <div className="text-sm font-semibold text-zinc-900 mb-3">Change log</div>
-        <div className="space-y-2">
-          {[
-            "2026-03-01 — Billing updated",
-            "2026-02-18 — Documentation added",
-          ].map((t) => (
-            <div key={t} className="text-sm text-zinc-600 py-2 border-b border-zinc-100">
-              {t}
-            </div>
-          ))}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <label className="block">
+            <div className="mb-1 text-sm text-zinc-700">Pricing type</div>
+            <select
+              value={pricingType}
+              onChange={(event) => setPricingType(event.target.value)}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+            >
+              <option value="PER_TOKEN">PER_TOKEN</option>
+              <option value="PER_PAGE">PER_PAGE</option>
+              <option value="PER_REQUEST">PER_REQUEST</option>
+              <option value="PER_IMAGE">PER_IMAGE</option>
+              <option value="CUSTOM">CUSTOM</option>
+            </select>
+          </label>
         </div>
-        <div className="mt-3 text-xs text-zinc-400">
-          TODO: add changed_by field for full audit trail
+
+        <div className="mt-4">
+          <JsonTreeEditor
+            value={pricingMetadata}
+            onChange={(value) => setPricingMetadata((value as Record<string, unknown>) ?? {})}
+          />
+        </div>
+
+        {billingError ? (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{billingError}</div>
+        ) : null}
+        {billingMessage ? (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{billingMessage}</div>
+        ) : null}
+
+        <div className="mt-5 flex justify-end">
+          <button
+            type="button"
+            onClick={saveBilling}
+            disabled={billingSaving}
+            className="rounded-xl bg-zinc-950 px-4 py-2 text-sm text-white hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {billingSaving ? "Saving..." : billingConfig ? "Update billing config" : "Create billing config"}
+          </button>
         </div>
       </section>
     </div>
   );
 }
-

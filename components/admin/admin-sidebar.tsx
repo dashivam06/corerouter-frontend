@@ -22,6 +22,7 @@ const navItems = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Users", href: "/admin/users", icon: Users },
   { label: "API Keys", href: "/admin/api-keys", icon: Key },
+  { label: "Billing", href: "/admin/billing", icon: CreditCard },
   { label: "Models", href: "/admin/models", icon: Cpu },
   { label: "Tasks", href: "/admin/tasks", icon: BarChart2 },
   { label: "Transactions", href: "/admin/transactions", icon: CreditCard },

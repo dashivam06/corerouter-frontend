@@ -41,6 +41,10 @@ const API_KEYS_BASE = `${API_BASE_URL}/api/v1/apikeys`;
 const MODELS_BASE = `${API_BASE_URL}/api/v1/models`;
 const ADMIN_MODELS_BASE = `${API_BASE_URL}/api/v1/admin/models`;
 const PROVIDERS_BASE = `${API_BASE_URL}/api/v1/providers`;
+const BILLING_BASE = `${API_BASE_URL}/api/v1/billing`;
+const ADMIN_BILLING_BASE = `${API_BASE_URL}/api/v1/admin/billing`;
+const ADMIN_DOCUMENTATION_BASE = `${API_BASE_URL}/api/v1/admin/documentation`;
+const WALLET_TOPUP_BASE = `${API_BASE_URL}/api/wallet/topup`;
 
 // API Key Types
 export type ApiKeyRecord = {
@@ -73,7 +77,7 @@ export type ModelResponse = {
   type: string;
   description: string;
   createdAt: string;
-  updatedAt: string;
+  updatedAt: string | null;
 };
 
 export type ApiDocumentationResponse = {
@@ -87,6 +91,17 @@ export type ApiDocumentationResponse = {
 
 export type ModelDetailsResponse = ModelResponse & {
   documentation: ApiDocumentationResponse[];
+};
+
+export type ModelControlTaskDetailsResponse = {
+  taskId?: string;
+  [key: string]: unknown;
+};
+
+export type ModelControlDetailsResponse = {
+  model: ModelDetailsResponse;
+  billing: BillingConfigResponse | null;
+  tasks: ModelControlTaskDetailsResponse[];
 };
 
 export type ModelCreateBody = {
@@ -110,6 +125,121 @@ export type ModelUpdateBody = {
 export type ModelStatusUpdateBody = {
   status: ModelStatus;
   reason?: string;
+};
+
+// Billing / Usage Types
+export type BillingPricingType = "PER_TOKEN" | "PER_IMAGE" | "PER_REQUEST" | string;
+
+export type BillingConfigResponse = {
+  billingId: number;
+  modelId: number;
+  modelName: string;
+  pricingType: BillingPricingType;
+  pricingMetadata: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BillingConfigCreateBody = {
+  modelId: number;
+  pricingType: BillingPricingType;
+  pricingMetadata: string;
+};
+
+export type BillingConfigUpdateBody = {
+  pricingType?: BillingPricingType;
+  pricingMetadata?: string;
+};
+
+export type BillingInsightsResponse = {
+  totalBalance: number;
+  thisMonthVolume: number;
+  todayTopUpAmount: number;
+};
+
+export type UsageUnitType = "TOKENS" | "IMAGES" | "SECONDS" | "REQUESTS" | string;
+
+export type UsageRecordResponse = {
+  usageId: number;
+  taskId: string;
+  modelId: number;
+  modelName: string;
+  apiKeyId: number;
+  usageUnitType: UsageUnitType;
+  quantity: number;
+  ratePerUnit: number;
+  cost: number;
+  recordedAt: string;
+};
+
+export type UsageSummaryItem = {
+  modelId: number | null;
+  modelName: string | null;
+  usageUnitType: UsageUnitType;
+  totalQuantity: number;
+  totalCost: number;
+  taskCount: number;
+};
+
+export type UsageSummaryResponse = {
+  periodStart: string;
+  periodEnd: string;
+  totalCost: number;
+  breakdown: UsageSummaryItem[];
+};
+
+export type UserBillingInsightsResponse = {
+  currentBalance: number;
+  creditsUsedThisMonth: number;
+  creditsUsedChangeFromLastMonthPercent: number;
+};
+
+export type UserUsageInsightsResponse = {
+  totalSpend: number;
+  totalSpendChangePercent: number;
+  totalRequests: number;
+  totalRequestsChangePercent: number;
+  mostUsedModel: string | null;
+  avgCostPerRequest: number;
+  avgCostPerRequestChangePercent: number;
+};
+
+export type PaginatedResponse<T> = {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  number: number;
+  size: number;
+  first: boolean;
+  last: boolean;
+};
+
+export type RecordUsageBody = {
+  taskId: string;
+  usageUnitType: UsageUnitType;
+  quantity: number;
+};
+
+export type TopUpInitiateResponse = Record<string, string>;
+
+export type DocumentationResponse = {
+  docId: number;
+  title: string;
+  content: string;
+  modelId: number;
+  modelName: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DocumentationCreateBody = {
+  title: string;
+  content: string;
+};
+
+export type DocumentationUpdateBody = {
+  title?: string;
+  content?: string;
 };
 
 // Provider Types
@@ -804,6 +934,324 @@ async function requestProviders<TRes>(
   );
 }
 
+async function requestBilling<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${BILLING_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError(
+      "You don't have permission to perform this action.",
+      403,
+      parsed?.errors ?? []
+    );
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestAdminBilling<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${ADMIN_BILLING_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 403) {
+      const parsed = await parseResponse<TRes>(response);
+      throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestAdminDocumentation<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${ADMIN_DOCUMENTATION_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 403) {
+      const parsed = await parseResponse<TRes>(response);
+      throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestWalletTopUp<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${WALLET_TOPUP_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
 async function mockRequest<T>(data: T): Promise<T> {
   await delay();
   return structuredClone(data) as T;
@@ -1129,6 +1577,158 @@ export async function fetchBillingForModel(modelId: number) {
   return mockRequest(mockBilling.find((b) => b.model_id === modelId) ?? null);
 }
 
+export async function getUserBillingInsights(): Promise<UserBillingInsightsResponse> {
+  return requestBilling<UserBillingInsightsResponse>("GET", "/insights");
+}
+
+export async function getUserUsageInsights(): Promise<UserUsageInsightsResponse> {
+  return requestBilling<UserUsageInsightsResponse>("GET", "/usage/insights");
+}
+
+export async function getUsageByTask(taskId: string): Promise<UsageRecordResponse[]> {
+  return requestBilling<UsageRecordResponse[]>("GET", `/usage/task/${encodeURIComponent(taskId)}`);
+}
+
+export async function getUsageSummaryByApiKey(
+  apiKeyId: number,
+  from: string,
+  to: string
+): Promise<UsageSummaryResponse> {
+  return requestBilling<UsageSummaryResponse>(
+    "GET",
+    `/usage/apikey/${apiKeyId}/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  );
+}
+
+export async function getUsageSummaryByModel(
+  apiKeyId: number,
+  from: string,
+  to: string
+): Promise<UsageSummaryResponse> {
+  return requestBilling<UsageSummaryResponse>(
+    "GET",
+    `/usage/apikey/${apiKeyId}/summary/by-model?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  );
+}
+
+export async function getUsageHistory(
+  apiKeyId: number,
+  from: string,
+  to: string,
+  page = 0,
+  size = 20
+): Promise<PaginatedResponse<UsageRecordResponse>> {
+  return requestBilling<PaginatedResponse<UsageRecordResponse>>(
+    "GET",
+    `/usage/apikey/${apiKeyId}/history?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page=${page}&size=${size}`
+  );
+}
+
+export async function getTotalCost(from: string, to: string): Promise<number> {
+  return requestBilling<number>("GET", `/cost/total?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+}
+
+export async function initiateTopUp(amount: number): Promise<TopUpInitiateResponse> {
+  return requestWalletTopUp<TopUpInitiateResponse>("POST", "/initiate", { amount });
+}
+
+export async function topUpSuccess(data: string): Promise<{ amount: number; transaction_uuid: string }> {
+  return requestWalletTopUp<{ amount: number; transaction_uuid: string }>("GET", `/success?data=${encodeURIComponent(data)}`);
+}
+
+export async function topUpFailure(
+  data?: string,
+  transactionUuid?: string
+): Promise<void> {
+  const params = new URLSearchParams();
+  if (data) params.set("data", data);
+  if (transactionUuid) params.set("transaction_uuid", transactionUuid);
+  await requestWalletTopUp<null>("GET", `/failure${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export async function getAdminBillingInsights(): Promise<BillingInsightsResponse> {
+  return requestAdminBilling<BillingInsightsResponse>("GET", "/insights");
+}
+
+export async function listBillingConfigs(): Promise<BillingConfigResponse[]> {
+  return requestAdminBilling<BillingConfigResponse[]>("GET", "/configs");
+}
+
+export async function getBillingConfigById(billingId: number): Promise<BillingConfigResponse> {
+  return requestAdminBilling<BillingConfigResponse>("GET", `/configs/${billingId}`);
+}
+
+export async function getBillingConfigByModel(modelId: number): Promise<BillingConfigResponse> {
+  return requestAdminBilling<BillingConfigResponse>("GET", `/configs/model/${modelId}`);
+}
+
+export async function createBillingConfig(body: BillingConfigCreateBody): Promise<BillingConfigResponse> {
+  return requestAdminBilling<BillingConfigResponse>("POST", "/configs", body);
+}
+
+export async function updateBillingConfig(
+  billingId: number,
+  body: BillingConfigUpdateBody
+): Promise<BillingConfigResponse> {
+  return requestAdminBilling<BillingConfigResponse>("PUT", `/configs/${billingId}`, body);
+}
+
+export async function deleteBillingConfig(billingId: number): Promise<void> {
+  await requestAdminBilling<null>("DELETE", `/configs/${billingId}`);
+}
+
+export async function recordUsage(body: RecordUsageBody): Promise<UsageRecordResponse> {
+  return requestAdminBilling<UsageRecordResponse>("POST", "/usage", body);
+}
+
+export async function getAdminUsageByTask(taskId: string): Promise<UsageRecordResponse[]> {
+  return requestAdminBilling<UsageRecordResponse[]>("GET", `/usage/task/${encodeURIComponent(taskId)}`);
+}
+
+export async function getAdminUsageSummaryByApiKey(
+  apiKeyId: number,
+  from: string,
+  to: string
+): Promise<UsageSummaryResponse> {
+  return requestAdminBilling<UsageSummaryResponse>(
+    "GET",
+    `/usage/apikey/${apiKeyId}/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  );
+}
+
+export async function getAdminUsageSummaryByModel(
+  apiKeyId: number,
+  from: string,
+  to: string
+): Promise<UsageSummaryResponse> {
+  return requestAdminBilling<UsageSummaryResponse>(
+    "GET",
+    `/usage/apikey/${apiKeyId}/summary/by-model?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  );
+}
+
+export async function listDocumentationByModel(modelId: number): Promise<DocumentationResponse[]> {
+  return requestAdminDocumentation<DocumentationResponse[]>("GET", `/models/${modelId}`);
+}
+
+export async function createDocumentation(
+  modelId: number,
+  body: DocumentationCreateBody
+): Promise<DocumentationResponse> {
+  return requestAdminDocumentation<DocumentationResponse>("POST", `/models/${modelId}`, body);
+}
+
+export async function updateDocumentation(
+  docId: number,
+  body: DocumentationUpdateBody
+): Promise<DocumentationResponse> {
+  return requestAdminDocumentation<DocumentationResponse>("PUT", `/${docId}`, body);
+}
+
+export async function deleteDocumentation(docId: number): Promise<void> {
+  await requestAdminDocumentation<null>("DELETE", `/${docId}`);
+}
+
 // Provider endpoints (user-facing)
 export async function fetchProviders(): Promise<ProviderResponse[]> {
   return requestProviders<ProviderResponse[]>("GET", "");
@@ -1166,6 +1766,10 @@ export async function getModelsByStatus(status: ModelStatus): Promise<ModelRespo
 
 export async function getAdminModelDetails(modelId: number): Promise<ModelResponse> {
   return requestAdminModels<ModelResponse>("GET", `/${modelId}`);
+}
+
+export async function getAdminModelControlDetails(modelId: number): Promise<ModelControlDetailsResponse> {
+  return requestAdminModels<ModelControlDetailsResponse>("GET", `/${modelId}/control-details`);
 }
 
 export async function updateModel(modelId: number, body: ModelUpdateBody): Promise<ModelResponse> {

@@ -4,9 +4,12 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Clipboard } from "lucide-react";
 import {
+  getUserBillingInsights,
+  getUserUsageInsights,
   fetchTransactions,
   getBalanceHistory,
   getCreditsComparison,
+  initiateTopUp,
 } from "@/lib/api";
 import { UserHeader } from "@/components/layout/user-header";
 import { useAuthStore } from "@/stores/auth-store";
@@ -32,7 +35,14 @@ import { format } from "date-fns";
 
 export default function BillingPage() {
   const user = useAuthStore((s) => s.user);
-  const balance = user?.balance ?? 0;
+  const { data: billingInsights } = useQuery({
+    queryKey: ["billing-insights"],
+    queryFn: getUserBillingInsights,
+  });
+  const { data: usageInsights } = useQuery({
+    queryKey: ["usage-insights"],
+    queryFn: getUserUsageInsights,
+  });
   const { data: txs } = useQuery({
     queryKey: ["transactions"],
     queryFn: fetchTransactions,
@@ -45,6 +55,8 @@ export default function BillingPage() {
   const [txType, setTxType] = useState<string>("all");
   const [page, setPage] = useState(0);
   const [detail, setDetail] = useState<MockTransaction | null>(null);
+  const [topUpSubmitting, setTopUpSubmitting] = useState(false);
+  const [topUpError, setTopUpError] = useState<string | null>(null);
 
   const fullHistory = useMemo(() => {
     let list = txs ?? [];
@@ -53,6 +65,8 @@ export default function BillingPage() {
     }
     return list;
   }, [txs, txType]);
+
+  const balance = billingInsights?.currentBalance ?? user?.balance ?? 0;
 
   const pageSize = 6;
   const paginated = fullHistory.slice(page * pageSize, (page + 1) * pageSize);
@@ -65,9 +79,15 @@ export default function BillingPage() {
     return raw.slice(-n);
   }, [balance, range]);
 
-  const { thisMonth, lastMonth } = getCreditsComparison();
+  const thisMonth = billingInsights?.creditsUsedThisMonth ?? getCreditsComparison().thisMonth;
+  const lastMonth = getCreditsComparison().lastMonth;
   const deltaPct =
-    lastMonth > 0 ? Math.round(((thisMonth - lastMonth) / lastMonth) * 100) : 0;
+    billingInsights && lastMonth > 0
+      ? Math.round(((thisMonth - lastMonth) / lastMonth) * 100)
+      : 0;
+
+  const totalSpend = usageInsights?.totalSpend ?? 0;
+  const avgCostPerRequest = usageInsights?.avgCostPerRequest ?? 0;
 
   function payAmount(): number {
     if (amountSel) return amountSel;
@@ -111,10 +131,22 @@ export default function BillingPage() {
             {formatNPR(thisMonth)}
           </p>
           <p
-            className={`mt-2 text-xs ${deltaPct >= 0 ? "text-green-600" : "text-red-600"}`}
+            className={`mt-2 text-xs ${deltaPct >= 0 ? "text-amber-600" : "text-green-600"}`}
           >
             {deltaPct >= 0 ? "↑" : "↓"} {Math.abs(deltaPct)}% from last month
           </p>
+        </div>
+
+        <div className="rounded-2xl border border-zinc-200 bg-white p-6">
+          <p className="text-xs font-medium text-zinc-500">Total spend</p>
+          <p className="mt-2 text-3xl font-semibold text-zinc-950">{formatNPR(totalSpend)}</p>
+          <p className="mt-2 text-xs text-zinc-500">Live usage insights</p>
+        </div>
+
+        <div className="rounded-2xl border border-zinc-200 bg-white p-6">
+          <p className="text-xs font-medium text-zinc-500">Avg cost / request</p>
+          <p className="mt-2 text-3xl font-semibold text-zinc-950">{formatNPR(avgCostPerRequest)}</p>
+          <p className="mt-2 text-xs text-zinc-500">Current period</p>
         </div>
       </div>
 
@@ -292,9 +324,49 @@ export default function BillingPage() {
             type="button"
             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3 font-medium text-white"
             style={{ background: "#60BB46" }}
+            disabled={topUpSubmitting}
+            onClick={async () => {
+              const amount = payAmount();
+              if (!amount || amount < 1) {
+                setTopUpError("Minimum top-up amount is NPR 1.00");
+                return;
+              }
+              setTopUpSubmitting(true);
+              setTopUpError(null);
+              try {
+                const formFields = await initiateTopUp(amount);
+                const paymentUrl =
+                  formFields.payment_url ||
+                  formFields.paymentUrl ||
+                  formFields.esewa_url ||
+                  formFields.esewaUrl ||
+                  "https://esewa.com.np/epay/main";
+
+                const form = document.createElement("form");
+                form.method = "POST";
+                form.action = paymentUrl;
+                form.style.display = "none";
+                for (const [key, value] of Object.entries(formFields)) {
+                  if (key === "payment_url" || key === "paymentUrl" || key === "esewa_url" || key === "esewaUrl") continue;
+                  const input = document.createElement("input");
+                  input.type = "hidden";
+                  input.name = key;
+                  input.value = value;
+                  form.appendChild(input);
+                }
+                document.body.appendChild(form);
+                form.submit();
+              } catch (error) {
+                setTopUpError(error instanceof Error ? error.message : "Failed to initiate payment. Please try again.");
+                setTopUpSubmitting(false);
+              }
+            }}
           >
-            Pay with eSewa
+            {topUpSubmitting ? "Redirecting..." : "Pay with eSewa"}
           </button>
+          {topUpError ? (
+            <p className="mt-2 text-center text-sm text-red-600">{topUpError}</p>
+          ) : null}
           <p className="mt-2 text-center text-[11px] text-zinc-400">
             Powered by eSewa · Secure payment · Nepal&apos;s trusted wallet
           </p>

@@ -1,5 +1,17 @@
 import { format } from "date-fns";
 
+export function parseUtcTimestamp(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  // Backend often returns LocalDateTime without timezone; treat it as UTC.
+  const hasTimezone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(trimmed);
+  const normalized = hasTimezone ? trimmed : `${trimmed}Z`;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function formatNPR(amount: number): string {
   const abs = Math.abs(amount);
   const formatted = abs.toLocaleString("en-NP", {

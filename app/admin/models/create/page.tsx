@@ -3,14 +3,23 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { CheckCircle, ChevronLeft, XCircle } from "lucide-react";
 import type { AdminModelType, AdminModelStatus } from "@/lib/admin-mock-data";
-import { adminFetchModels, adminFetchProviders } from "@/lib/admin-api";
+import {
+  adminCreateBillingConfig,
+  adminCreateDocumentation,
+  adminFetchModels,
+  adminFetchProviders,
+} from "@/lib/admin-api";
 import { JsonTreeEditor } from "@/components/admin/json-tree-editor";
 import { RichTextEditor } from "@/components/admin/rich-text-editor";
 import { PricingCalculator } from "@/components/admin/pricing-calculator";
 import { JsonPreview } from "@/components/admin/json-preview";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { createModel, updateModelStatus } from "@/lib/api";
+import type { BillingConfigResponse, DocumentationResponse } from "@/lib/api";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -50,6 +59,8 @@ function StepNode({
 }
 
 export default function AdminCreateModelPage() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: models } = useQuery({
     queryKey: ["admin-models"],
     queryFn: adminFetchModels,
@@ -100,12 +111,95 @@ export default function AdminCreateModelPage() {
   const [pricingMetadata, setPricingMetadata] = useState<any>(pricingScaffold);
 
   const [publishStatus, setPublishStatus] = useState<AdminModelStatus>("ACTIVE");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!provider && availableProviders.length > 0) {
       setProvider(availableProviders[0].providerName);
     }
   }, [availableProviders, provider]);
+
+  const handleCreateModel = async () => {
+    if (!fullName.trim()) {
+      setCreateError("Model name is required.");
+      return;
+    }
+
+    if (!provider.trim()) {
+      setCreateError("Select a provider before creating the model.");
+      return;
+    }
+
+    if (!endpointUrl.trim()) {
+      setCreateError("Endpoint URL is required.");
+      return;
+    }
+
+    setCreating(true);
+    setCreateError(null);
+
+    try {
+      const normalizedDocTitle = docsTitle.trim() || "Overview";
+      const normalizedDocContent = docsContent.trim();
+      const fallbackDocContent = [
+        `${fullName.trim()} API documentation.`,
+        `Provider: ${provider.trim()}.`,
+        `Endpoint: ${endpointUrl.trim()}.`,
+        description.trim() ? `Description: ${description.trim()}.` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      const createdModel = await createModel({
+        fullname: fullName.trim(),
+        username: username.trim(),
+        provider: provider.trim(),
+        endpointUrl: endpointUrl.trim(),
+        description: description.trim(),
+        type,
+      });
+
+      const [createdDocumentation, createdBillingConfig] = await Promise.all([
+        adminCreateDocumentation(createdModel.modelId, {
+          title: normalizedDocTitle,
+          content: normalizedDocContent.length >= 10 ? normalizedDocContent : fallbackDocContent,
+        }),
+        adminCreateBillingConfig({
+          modelId: createdModel.modelId,
+          pricingType,
+          pricingMetadata: JSON.stringify(pricingMetadata ?? {}),
+        }),
+      ]);
+
+      queryClient.setQueryData<DocumentationResponse[]>(
+        ["admin-model-documentation", createdModel.modelId],
+        [createdDocumentation]
+      );
+      queryClient.setQueryData<BillingConfigResponse | null>(
+        ["admin-model-billing-config", createdModel.modelId],
+        createdBillingConfig
+      );
+
+      if (publishStatus !== "NOTHING" && createdModel.status !== publishStatus) {
+        try {
+          await updateModelStatus(createdModel.modelId, { status: publishStatus });
+        } catch (error) {
+          const message = error instanceof Error ? error.message.toLowerCase() : "";
+          if (!message.includes("already has this status")) {
+            throw error;
+          }
+        }
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ["admin-models"] });
+      router.push(`/admin/models/${createdModel.modelId}`);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : "Unable to create model.");
+    } finally {
+      setCreating(false);
+    }
+  };
 
   return (
     <div>
@@ -437,11 +531,19 @@ export default function AdminCreateModelPage() {
                 </div>
               </div>
 
+              {createError ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {createError}
+                </div>
+              ) : null}
+
               <button
                 type="button"
-                className="w-full rounded-xl bg-zinc-950 py-3 text-white hover:bg-zinc-900"
+                onClick={handleCreateModel}
+                disabled={creating}
+                className="w-full rounded-xl bg-zinc-950 py-3 text-white hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Create model
+                {creating ? "Creating..." : "Create model"}
               </button>
           </div>
         ) : null}
