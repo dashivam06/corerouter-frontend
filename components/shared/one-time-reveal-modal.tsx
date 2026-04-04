@@ -36,14 +36,14 @@ export function OneTimeRevealModal({
       >
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold text-zinc-950">
-            Your new API key
+            New API key generated
           </DialogTitle>
           <DialogDescription className="sr-only">
             Copy your API key before closing.
           </DialogDescription>
         </DialogHeader>
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          Copy this key now. it will never be shown again.
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-700">
+          Please copy this key now. It will not be shown again.
         </div>
         <div className="rounded-xl bg-zinc-950 p-4 font-mono text-sm break-all text-green-400">
           {secret}

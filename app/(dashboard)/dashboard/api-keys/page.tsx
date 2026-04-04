@@ -8,9 +8,10 @@ import {
   createApiKey,
   deleteApiKey,
   deactivateApiKey,
+  enableApiKey,
   fetchApiKeys,
+  type ApiKeyRecord,
 } from "@/lib/api";
-import type { MockApiKey } from "@/lib/mock-data";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { MaskedKey } from "@/components/shared/masked-key";
 import { OneTimeRevealModal } from "@/components/shared/one-time-reveal-modal";
@@ -49,20 +50,6 @@ import {
 import { format } from "date-fns";
 import { formatRelative } from "@/lib/formatters";
 
-function LimitBar({ used, limit }: { used: number; limit: number }) {
-  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
-  const color =
-    pct < 70 ? "bg-green-500" : pct < 90 ? "bg-amber-500" : "bg-red-500";
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
-      <div
-        className={`h-full rounded-full transition-all ${color}`}
-        style={{ width: `${pct}%` }}
-      />
-    </div>
-  );
-}
-
 export default function ApiKeysPage() {
   const qc = useQueryClient();
   const { data: keys, isLoading } = useQuery({
@@ -72,20 +59,36 @@ export default function ApiKeysPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [desc, setDesc] = useState("");
+  const [dailyLimit, setDailyLimit] = useState("");
+  const [monthlyLimit, setMonthlyLimit] = useState("");
   const [reveal, setReveal] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<MockApiKey | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ApiKeyRecord | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
+  const openCreateDialog = () => {
+    setDesc("");
+    setDailyLimit("");
+    setMonthlyLimit("");
+    setCreateOpen(true);
+  };
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const allSelected =
-    !!keys?.length && keys.every((k) => selectedSet.has(k.api_key_id));
+    !!keys?.length && keys.every((k) => selectedSet.has(k.apiKeyId));
 
   const createMut = useMutation({
-    mutationFn: () => createApiKey(desc),
+    mutationFn: () =>
+      createApiKey({
+        description: desc,
+        dailyLimit: Number(dailyLimit),
+        monthlyLimit: Number(monthlyLimit),
+      }),
     onSuccess: (k) => {
       qc.invalidateQueries({ queryKey: ["api-keys"] });
       setCreateOpen(false);
       setDesc("");
+      setDailyLimit("");
+      setMonthlyLimit("");
       setReveal(k.key);
     },
   });
@@ -103,8 +106,14 @@ export default function ApiKeysPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["api-keys"] }),
   });
 
+  const activateMut = useMutation({
+    mutationFn: (id: number) => enableApiKey(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["api-keys"] }),
+  });
+
   const bulkDeactMut = useMutation({
-    mutationFn: (ids: number[]) => Promise.all(ids.map((id) => deactivateApiKey(id))),
+    mutationFn: (ids: number[]) =>
+      Promise.all(ids.map((id) => deactivateApiKey(id))),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["api-keys"] });
       setSelectedIds([]);
@@ -112,7 +121,8 @@ export default function ApiKeysPage() {
   });
 
   const bulkDeleteMut = useMutation({
-    mutationFn: (ids: number[]) => Promise.all(ids.map((id) => deleteApiKey(id))),
+    mutationFn: (ids: number[]) =>
+      Promise.all(ids.map((id) => deleteApiKey(id))),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["api-keys"] });
       setSelectedIds([]);
@@ -128,7 +138,7 @@ export default function ApiKeysPage() {
         <Button
           type="button"
           className="rounded-xl bg-zinc-950 px-8 py-5 text-sm text-white hover:bg-zinc-900"
-          onClick={() => setCreateOpen(true)}
+          onClick={openCreateDialog}
         >
           Create New key
         </Button>
@@ -164,7 +174,6 @@ export default function ApiKeysPage() {
           </TooltipProvider>
         </div>
       </div>
-
       {isLoading ? (
         <div className="flex justify-center py-20 text-zinc-500">
           <Loader2 className="size-6 animate-spin" />
@@ -181,7 +190,7 @@ export default function ApiKeysPage() {
           <Button
             type="button"
             className="mt-4 rounded-xl bg-zinc-950 px-4 py-2 text-sm text-white"
-            onClick={() => setCreateOpen(true)}
+            onClick={openCreateDialog}
           >
             Create your first key
           </Button>
@@ -223,7 +232,7 @@ export default function ApiKeysPage() {
                       checked={allSelected}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setSelectedIds(keys.map((k) => k.api_key_id));
+                          setSelectedIds(keys.map((k) => k.apiKeyId));
                         } else {
                           setSelectedIds([]);
                         }
@@ -241,16 +250,23 @@ export default function ApiKeysPage() {
               </thead>
               <tbody>
                 {keys.map((k) => (
-                  <tr key={k.api_key_id} className="border-b border-zinc-100 last:border-0">
+                  <tr
+                    key={k.apiKeyId}
+                    className={`border-b border-zinc-100 last:border-0 ${
+                      k.status === "REVOKED" || k.status === "EXPIRED"
+                        ? "bg-zinc-50/70"
+                        : ""
+                    }`}
+                  >
                     <td className="px-4 py-3 align-top">
                       <input
                         type="checkbox"
                         aria-label={`Select ${k.description}`}
-                        checked={selectedSet.has(k.api_key_id)}
+                        checked={selectedSet.has(k.apiKeyId)}
                         onChange={(e) => {
                           setSelectedIds((prev) => {
-                            if (e.target.checked) return [...prev, k.api_key_id];
-                            return prev.filter((id) => id !== k.api_key_id);
+                            if (e.target.checked) return [...prev, k.apiKeyId];
+                            return prev.filter((id) => id !== k.apiKeyId);
                           });
                         }}
                         className="size-4 rounded border-zinc-300"
@@ -264,49 +280,53 @@ export default function ApiKeysPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 align-top">
-                      <div className="w-44 space-y-1">
-                        <LimitBar used={k.daily_used} limit={k.daily_limit} />
-                        <p className="text-xs text-zinc-600">
-                          {k.daily_used.toLocaleString()} / {k.daily_limit.toLocaleString()}
-                        </p>
-                      </div>
+                      <p className="text-xs text-zinc-600">
+                        {k.dailyLimit.toLocaleString()} / day
+                      </p>
                     </td>
                     <td className="px-4 py-3 align-top">
-                      <div className="w-44 space-y-1">
-                        <LimitBar used={k.monthly_used} limit={k.monthly_limit} />
-                        <p className="text-xs text-zinc-600">
-                          {k.monthly_used.toLocaleString()} / {k.monthly_limit.toLocaleString()}
-                        </p>
-                      </div>
+                      <p className="text-xs text-zinc-600">
+                        {k.monthlyLimit.toLocaleString()} / month
+                      </p>
                     </td>
                     <td className="px-4 py-3 align-top text-xs text-zinc-600">
-                      {k.last_used_at
-                        ? formatRelative(new Date(k.last_used_at))
+                      {k.lastUsedAt
+                        ? formatRelative(new Date(k.lastUsedAt))
                         : "Never used"}
                     </td>
                     <td className="px-4 py-3 align-top text-xs text-zinc-600">
-                      {format(new Date(k.created_at), "MMM d, yyyy")}
+                      {format(new Date(k.createdAt), "MMM d, yyyy")}
                     </td>
                     <td className="px-4 py-3 align-top text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          className="rounded-md p-2 text-zinc-400 outline-none hover:bg-zinc-50 hover:text-zinc-700"
-                          aria-label="Key actions"
-                        >
-                          <MoreHorizontal className="size-4" />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="rounded-xl">
-                          <DropdownMenuItem onClick={() => deactMut.mutate(k.api_key_id)}>
-                            Deactivate
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-red-600"
-                            onClick={() => setDeleteTarget(k)}
+                      {k.status === "ACTIVE" || k.status === "INACTIVE" ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            className="rounded-md p-2 text-zinc-400 outline-none hover:bg-zinc-50 hover:text-zinc-700"
+                            aria-label="Key actions"
                           >
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <MoreHorizontal className="size-4" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="rounded-xl">
+                            {k.status === "ACTIVE" ? (
+                              <DropdownMenuItem onClick={() => deactMut.mutate(k.apiKeyId)}>
+                                Disable
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem onClick={() => activateMut.mutate(k.apiKeyId)}>
+                                Enable
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem
+                              className="text-red-600"
+                              onClick={() => setDeleteTarget(k)}
+                            >
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : (
+                        <span className="text-xs text-zinc-400">No actions</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -332,17 +352,58 @@ export default function ApiKeysPage() {
               onChange={(e) => setDesc(e.target.value)}
               className="rounded-xl"
             />
-            <p className="text-xs text-zinc-500">
-              Daily and monthly limits are set by your plan.
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="daily-limit">Daily limit</Label>
+                <Input
+                  id="daily-limit"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={dailyLimit}
+                  onChange={(e) => setDailyLimit(e.target.value)}
+                  className="rounded-xl"
+                  placeholder="e.g. 5000"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="monthly-limit">Monthly limit</Label>
+                <Input
+                  id="monthly-limit"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={monthlyLimit}
+                  onChange={(e) => setMonthlyLimit(e.target.value)}
+                  className="rounded-xl"
+                  placeholder="e.g. 100000"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-zinc-500 font-montserrat mt-3">
+              Set the usage caps for this key before creating it.
             </p>
           </div>
           <DialogFooter className="gap-2 sm:justify-end">
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setCreateOpen(false);
+                setDesc("");
+                setDailyLimit("");
+                setMonthlyLimit("");
+              }}
+            >
               Cancel
             </Button>
             <Button
               className="bg-zinc-950 text-white hover:bg-zinc-900"
-              disabled={createMut.isPending}
+              disabled={
+                createMut.isPending ||
+                desc.trim() === "" ||
+                dailyLimit.trim() === "" ||
+                monthlyLimit.trim() === ""
+              }
               onClick={() => createMut.mutate()}
             >
               {createMut.isPending ? "Creating…" : "Create key"}
@@ -376,7 +437,7 @@ export default function ApiKeysPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 text-white hover:bg-red-600"
-              onClick={() => deleteTarget && delMut.mutate(deleteTarget.api_key_id)}
+              onClick={() => deleteTarget && delMut.mutate(deleteTarget.apiKeyId)}
             >
               Delete key
             </AlertDialogAction>

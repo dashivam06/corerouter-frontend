@@ -2,11 +2,10 @@
  * Backend auth API integration + mock data helpers for non-auth dashboard resources.
  */
 
-import type { MockUser, MockApiKey } from "@/lib/mock-data";
+import type { MockUser } from "@/lib/mock-data";
 import {
   mockActivity,
   mockApiDocs,
-  mockApiKeys as seedApiKeys,
   mockBilling,
   mockCreditsUsedLastMonth,
   mockCreditsUsedThisMonth,
@@ -33,13 +32,29 @@ import {
 
 const delay = (ms = 280) => new Promise((r) => setTimeout(r, ms));
 
-let runtimeApiKeys = structuredClone(seedApiKeys) as MockApiKey[];
-
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.corerouter.me"
 ).replace(/\/$/, "");
 const AUTH_BASE = `${API_BASE_URL}/api/v1/auth`;
 const USER_PROFILE_BASE = `${API_BASE_URL}/api/v1/user/profile`;
+const API_KEYS_BASE = `${API_BASE_URL}/api/v1/apikeys`;
+
+export type ApiKeyRecord = {
+  apiKeyId: number;
+  key: string;
+  description: string;
+  dailyLimit: number;
+  monthlyLimit: number;
+  status: "ACTIVE" | "INACTIVE" | "REVOKED" | "EXPIRED";
+  createdAt: string;
+  lastUsedAt: string | null;
+};
+
+type ApiKeyUpdateBody = {
+  description?: string;
+  dailyLimit?: number;
+  monthlyLimit?: number;
+};
 
 type ValidationErrorItem = {
   field: string;
@@ -358,6 +373,80 @@ async function requestUserProfile<TRes>(
   );
 }
 
+async function requestApiKeys<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${API_KEYS_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError(
+      "Unable to connect. Check your internet connection.",
+      0
+    );
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
 async function mockRequest<T>(data: T): Promise<T> {
   await delay();
   return structuredClone(data) as T;
@@ -619,44 +708,51 @@ export async function fetchCurrentUser(): Promise<MockUser> {
   return mockRequest(mockUser);
 }
 
-export async function fetchApiKeys(): Promise<MockApiKey[]> {
-  await delay();
-  return structuredClone(runtimeApiKeys);
+export async function fetchApiKeys(): Promise<ApiKeyRecord[]> {
+  return requestApiKeys<ApiKeyRecord[]>("GET", "");
 }
 
-export async function createApiKey(description: string): Promise<MockApiKey> {
-  await delay();
-  const key: MockApiKey = {
-    api_key_id: Date.now(),
-    created_at: new Date().toISOString(),
-    daily_limit: 5000,
-    daily_used: 0,
-    description: description || "Untitled",
-    key:
-      "cr_demo_" +
-      Array.from({ length: 32 }, () =>
-        Math.floor(Math.random() * 16).toString(16)
-      ).join(""),
-    last_used_at: null,
-    monthly_limit: 100_000,
-    monthly_used: 0,
-    status: "ACTIVE",
-    user_id: mockUser.user_id,
-  };
-  runtimeApiKeys = [...runtimeApiKeys, key];
-  return key;
+export async function getApiKeyDetails(
+  apiKeyId: number,
+  accessToken?: string
+): Promise<ApiKeyRecord> {
+  return requestApiKeys<ApiKeyRecord>("GET", `/${apiKeyId}`, undefined, accessToken);
 }
 
-export async function deleteApiKey(id: number): Promise<void> {
-  await delay();
-  runtimeApiKeys = runtimeApiKeys.filter((k) => k.api_key_id !== id);
+export async function createApiKey(
+  body: { description: string; dailyLimit: number; monthlyLimit: number },
+  accessToken?: string
+): Promise<ApiKeyRecord> {
+  return requestApiKeys<ApiKeyRecord>("POST", "/generate", body, accessToken);
 }
 
-export async function deactivateApiKey(id: number): Promise<void> {
-  await delay();
-  runtimeApiKeys = runtimeApiKeys.map((k) =>
-    k.api_key_id === id ? { ...k, status: "INACTIVE" as const } : k
-  );
+export async function updateApiKey(
+  apiKeyId: number,
+  body: ApiKeyUpdateBody,
+  accessToken?: string
+): Promise<ApiKeyRecord> {
+  return requestApiKeys<ApiKeyRecord>("PUT", `/${apiKeyId}`, body, accessToken);
+}
+
+export async function enableApiKey(
+  apiKeyId: number,
+  accessToken?: string
+): Promise<ApiKeyRecord> {
+  return requestApiKeys<ApiKeyRecord>("PATCH", `/${apiKeyId}/enable`, undefined, accessToken);
+}
+
+export async function deactivateApiKey(
+  apiKeyId: number,
+  accessToken?: string
+): Promise<ApiKeyRecord> {
+  return requestApiKeys<ApiKeyRecord>("PATCH", `/${apiKeyId}/disable`, undefined, accessToken);
+}
+
+export async function deleteApiKey(
+  apiKeyId: number,
+  accessToken?: string
+): Promise<void> {
+  await requestApiKeys<null>("DELETE", `/${apiKeyId}`, undefined, accessToken);
 }
 
 export async function fetchModels() {
