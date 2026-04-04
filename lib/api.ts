@@ -22,7 +22,14 @@ import {
   type MockTransaction,
   type MockUsageRecord,
 } from "@/lib/mock-data";
-import { getAuthTokenStorage, userFromAccessToken } from "@/lib/auth";
+import {
+  clearAllAuthClientTokens,
+  getAuthTokenStorage,
+  getRefreshTokenCookie,
+  setAuthTokenStorage,
+  setRefreshTokenCookie,
+  userFromAccessToken,
+} from "@/lib/auth";
 
 const delay = (ms = 280) => new Promise((r) => setTimeout(r, ms));
 
@@ -32,6 +39,7 @@ const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.corerouter.me"
 ).replace(/\/$/, "");
 const AUTH_BASE = `${API_BASE_URL}/api/v1/auth`;
+const USER_PROFILE_BASE = `${API_BASE_URL}/api/v1/user/profile`;
 
 type ValidationErrorItem = {
   field: string;
@@ -71,6 +79,7 @@ type UserProfileResponse = {
   fullName: string;
   email: string;
   profileImage: string | null;
+  emailSubscribed?: boolean;
   status: string;
 };
 
@@ -133,38 +142,61 @@ function authActionErrorMessage(
   defaultMessage: string,
   kind: "change-password" | "delete-account" | "update-profile"
 ): string {
+  const normalizedMessage = defaultMessage.trim().toLowerCase();
+
   if (kind === "change-password") {
     if (status === 400) return defaultMessage || "Passwords do not match.";
     if (status === 401) return "Current password is incorrect.";
-    if (status === 500) return "Failed to change password. Try again.";
+    if (status === 500) return "Failed to change password. Please try again.";
   }
 
   if (kind === "delete-account") {
-    if (status === 400) return "Password is incorrect.";
+    if (status === 400) return defaultMessage;
+    if (status === 401 && normalizedMessage.includes("invalid password")) {
+      return defaultMessage;
+    }
     if (status === 401) return "Unauthorized. Please log in again.";
-    if (status === 500) return "Failed to delete account. Try again.";
+    if (status === 500) return "Failed to delete account. Please try again.";
   }
 
   if (kind === "update-profile") {
-    if (status === 401) return "Session expired, redirect to login";
-    if (status === 500) return "Failed to update profile. Try again.";
+    if (status === 400) return defaultMessage;
+    if (status === 401) return "Session expired. Please log in again.";
+    if (status === 500) return "Failed to update profile. Please try again.";
   }
 
   return defaultMessage;
 }
 
+function redirectToLogin() {
+  if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+    window.location.replace("/login");
+  }
+}
+
 function toMockUser(profile: UserProfileResponse, fallback?: Partial<MockUser>): MockUser {
+  const mappedStatus =
+    profile.status === "SUSPENDED"
+      ? "SUSPENDED"
+      : profile.status === "INACTIVE"
+        ? "INACTIVE"
+        : profile.status === "DELETED"
+          ? "DELETED"
+          : profile.status === "BANNED"
+            ? "BANNED"
+            : "ACTIVE";
+
   return {
     user_id: profile.userId,
     balance: fallback?.balance ?? 0,
     created_at: fallback?.created_at ?? new Date().toISOString(),
     email: profile.email,
-    email_subscribed: fallback?.email_subscribed ?? true,
+    email_subscribed: profile.emailSubscribed ?? fallback?.email_subscribed ?? true,
     full_name: profile.fullName,
     last_login: new Date().toISOString(),
     profile_image: profile.profileImage,
     role: fallback?.role ?? "USER",
-    status: profile.status === "SUSPENDED" ? "SUSPENDED" : profile.status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
+    status: mappedStatus,
   };
 }
 
@@ -214,6 +246,97 @@ async function postAuth<TReq extends Record<string, unknown>, TRes>(
       "Unable to connect. Check your internet connection.",
       0
     );
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestUserProfile<TRes>(
+  method: "GET" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${USER_PROFILE_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError(
+      "Unable to connect. Check your internet connection.",
+      0
+    );
+  }
+
+  if (response.status === 401) {
+    const parsedUnauthorized = await parseResponse<TRes>(response);
+    const unauthorizedMessage = parsedUnauthorized?.message?.trim();
+    const unauthorizedMessageNormalized = unauthorizedMessage?.toLowerCase();
+
+    // Some profile actions intentionally return 401 for credential validation.
+    // Do not refresh/retry for these, so the UI can show field-level feedback.
+    if (
+      unauthorizedMessageNormalized?.includes("invalid password") ||
+      unauthorizedMessageNormalized?.includes("invalid old password")
+    ) {
+      throw new ApiRequestError(
+        unauthorizedMessage || "Invalid password",
+        parsedUnauthorized?.status || response.status,
+        parsedUnauthorized?.errors ?? []
+      );
+    }
+
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
   }
 
   const parsed = await parseResponse<TRes>(response);
@@ -398,18 +521,65 @@ export async function logoutAuth(refreshToken: string): Promise<void> {
   }
 }
 
+export async function getProfile(
+  accessToken: string,
+  fallback?: Partial<MockUser>
+): Promise<MockUser> {
+  const data = await requestUserProfile<UserProfileResponse>("GET", "", undefined, accessToken);
+  return toMockUser(data, fallback);
+}
+
+export async function updateProfile(
+  accessToken: string,
+  body: { fullName?: string; profileImage?: string; emailSubscribed?: boolean }
+): Promise<MockUser> {
+  try {
+    const data = await requestUserProfile<UserProfileResponse>("PATCH", "", body, accessToken);
+    return toMockUser(data);
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      const message =
+        error.status === 400 && error.message === "Deleted account cannot be updated"
+          ? error.message
+          : authActionErrorMessage(error.status, error.message, "update-profile");
+      throw new ApiRequestError(
+        message,
+        error.status,
+        error.fieldErrors ? Object.entries(error.fieldErrors).map(([field, message]) => ({ field, message })) : []
+      );
+    }
+    throw error;
+  }
+}
+
 export async function changePassword(
   accessToken: string,
   body: { currentPassword: string; newPassword: string; confirmPassword: string }
 ): Promise<void> {
+  const payload = {
+    currentPassword: body.currentPassword,
+    newPassword: body.newPassword,
+    confirmPassword: body.confirmPassword,
+  };
+
   try {
-    await postAuth<typeof body, null>("/change-password", body, accessToken);
+    await requestUserProfile<null>("PATCH", "/password", payload, accessToken);
   } catch (error) {
     if (error instanceof ApiRequestError) {
+      const fieldErrors = error.fieldErrors ? Object.entries(error.fieldErrors).map(([field, message]) => ({ field, message })) : [];
+      if (error.status === 400 && error.message === "New password and confirm password do not match") {
+        fieldErrors.push({ field: "confirmPassword", message: "New password and confirm password do not match" });
+      }
+      if (error.status === 400 && error.message === "New password must be different from the current password") {
+        fieldErrors.push({ field: "newPassword", message: "New password must be different from the current password" });
+      }
+      if (error.status === 401 && error.message === "Invalid old password") {
+        fieldErrors.push({ field: "currentPassword", message: "Current password is incorrect" });
+      }
       throw new ApiRequestError(
         authActionErrorMessage(error.status, error.message, "change-password"),
         error.status,
-        error.fieldErrors ? Object.entries(error.fieldErrors).map(([field, message]) => ({ field, message })) : []
+        fieldErrors
       );
     }
     throw error;
@@ -421,47 +591,28 @@ export async function deleteAccount(
   body: { password: string }
 ): Promise<void> {
   try {
-    await postAuth<typeof body, null>("/delete-account", body, accessToken);
+    // Backend expects DELETE /api/v1/user/profile (without trailing slash).
+    // Send both key variants to stay compatible across deployments.
+    await requestUserProfile<null>(
+      "DELETE",
+      "",
+      { password: body.password, currentPassword: body.password },
+      accessToken
+    );
   } catch (error) {
     if (error instanceof ApiRequestError) {
+      const fieldErrors = error.fieldErrors ? Object.entries(error.fieldErrors).map(([field, message]) => ({ field, message })) : [];
+      if (error.status === 401 && error.message.toLowerCase().includes("invalid password")) {
+        fieldErrors.push({ field: "password", message: "Incorrect password" });
+      }
       throw new ApiRequestError(
         authActionErrorMessage(error.status, error.message, "delete-account"),
         error.status,
-        error.fieldErrors ? Object.entries(error.fieldErrors).map(([field, message]) => ({ field, message })) : []
+        fieldErrors
       );
     }
     throw error;
   }
-}
-
-export async function updateProfile(
-  accessToken: string,
-  body: { fullName?: string; profileImage?: string }
-): Promise<void> {
-  try {
-    await postAuth<typeof body, null>("/update-profile", body, accessToken);
-  } catch (error) {
-    if (error instanceof ApiRequestError) {
-      throw new ApiRequestError(
-        authActionErrorMessage(error.status, error.message, "update-profile"),
-        error.status,
-        error.fieldErrors ? Object.entries(error.fieldErrors).map(([field, message]) => ({ field, message })) : []
-      );
-    }
-    throw error;
-  }
-}
-
-export async function getProfile(
-  accessToken: string,
-  fallback?: Partial<MockUser>
-): Promise<MockUser> {
-  const data = await postAuth<Record<string, never>, UserProfileResponse>(
-    "/profile",
-    {},
-    accessToken
-  );
-  return toMockUser(data, fallback);
 }
 
 export async function fetchCurrentUser(): Promise<MockUser> {

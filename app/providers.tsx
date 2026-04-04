@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect, useRef, useState } from "react";
-import { refreshAuthToken } from "@/lib/api";
+import { ApiRequestError, getProfile, refreshAuthToken } from "@/lib/api";
 import {
   clearAllAuthClientTokens,
   getAuthTokenStorage,
@@ -18,6 +18,7 @@ import { useAuthStore } from "@/stores/auth-store";
 function AuthBootstrapper() {
   const authBootstrapped = useAuthStore((s) => s.authBootstrapped);
   const setSession = useAuthStore((s) => s.setSession);
+  const setUser = useAuthStore((s) => s.setUser);
   const setAuthBootstrapped = useAuthStore((s) => s.setAuthBootstrapped);
   const clearSession = useAuthStore((s) => s.clearSession);
 
@@ -25,6 +26,7 @@ function AuthBootstrapper() {
     if (authBootstrapped) return;
 
     let canceled = false;
+
     const run = async () => {
       const refreshToken = getRefreshTokenCookie();
       const accessToken = getAuthTokenStorage();
@@ -33,7 +35,7 @@ function AuthBootstrapper() {
         if (accessToken) {
           const user = userFromAccessToken(accessToken);
           const expMs = getJwtExpiryMs(accessToken);
-          if (user && !canceled) {
+          if (user) {
             const remaining = expMs
               ? Math.floor((expMs - Date.now()) / 1000)
               : 3600;
@@ -43,6 +45,30 @@ function AuthBootstrapper() {
                 refreshToken: refreshToken || "",
                 expiresIn: remaining,
               });
+
+              try {
+                const profile = await getProfile(accessToken, user);
+                if (!canceled) {
+                  if (profile.status === "DELETED") {
+                    clearSession();
+                    clearAllAuthClientTokens();
+                    window.location.assign("/login");
+                    return;
+                  }
+                  setUser(profile);
+                }
+              } catch (error) {
+                if (error instanceof ApiRequestError && error.status === 404) {
+                  clearSession();
+                  clearAllAuthClientTokens();
+                  window.location.assign("/login");
+                  return;
+                }
+              }
+
+              if (!canceled) {
+                setAuthBootstrapped(true);
+              }
               return;
             }
           }
@@ -51,20 +77,45 @@ function AuthBootstrapper() {
         if (refreshToken) {
           const nextTokens = await refreshAuthToken(refreshToken);
           const user = userFromAccessToken(nextTokens.accessToken);
-          if (!canceled && user) {
+          if (user && !canceled) {
             setAuthTokenStorage(nextTokens.accessToken);
             setRefreshTokenCookie(nextTokens.refreshToken);
             setSession(user, nextTokens);
+
+            try {
+              const profile = await getProfile(nextTokens.accessToken, user);
+              if (!canceled) {
+                if (profile.status === "DELETED") {
+                  clearSession();
+                  clearAllAuthClientTokens();
+                  window.location.assign("/login");
+                  return;
+                }
+                setUser(profile);
+              }
+            } catch (error) {
+              if (error instanceof ApiRequestError && error.status === 404) {
+                clearSession();
+                clearAllAuthClientTokens();
+                window.location.assign("/login");
+                return;
+              }
+            }
+
+            if (!canceled) {
+              setAuthBootstrapped(true);
+            }
             return;
           }
+        }
+
+        if (!canceled) {
+          setAuthBootstrapped(true);
         }
       } catch {
         if (!canceled) {
           clearSession();
           clearAllAuthClientTokens();
-        }
-      } finally {
-        if (!canceled) {
           setAuthBootstrapped(true);
         }
       }
@@ -74,7 +125,7 @@ function AuthBootstrapper() {
     return () => {
       canceled = true;
     };
-  }, [authBootstrapped, clearSession, setAuthBootstrapped, setSession]);
+  }, [authBootstrapped, clearSession, setAuthBootstrapped, setSession, setUser]);
 
   return null;
 }
@@ -109,7 +160,26 @@ function AuthSessionRefresher() {
           setAuthTokenStorage(nextTokens.accessToken);
           setRefreshTokenCookie(nextTokens.refreshToken);
           setTokens(nextTokens);
-          setUser(user);
+          try {
+            const profile = await getProfile(nextTokens.accessToken, user);
+            if (!canceled) {
+              if (profile.status === "DELETED") {
+                clearSession();
+                clearAllAuthClientTokens();
+                window.location.assign("/login");
+                return;
+              }
+              setUser(profile);
+            }
+          } catch (error) {
+            if (error instanceof ApiRequestError && error.status === 404) {
+              clearSession();
+              clearAllAuthClientTokens();
+              window.location.assign("/login");
+              return;
+            }
+            setUser(user);
+          }
         }
       } catch (error) {
         const status =

@@ -1,7 +1,7 @@
 /** Temporary mock payloads — replace with real API integration */
 
 export type UserRole = "USER" | "ADMIN";
-export type UserStatus = "ACTIVE" | "INACTIVE" | "BANNED" | "SUSPENDED";
+export type UserStatus = "ACTIVE" | "INACTIVE" | "BANNED" | "SUSPENDED" | "DELETED";
 export type KeyStatus = "ACTIVE" | "INACTIVE" | "REVOKED";
 export type ModelStatus = "NOTHING" | "ACTIVE" | "INACTIVE" | "DEPRECATED" | "ARCHIVED";
 export type ModelType = "LLM" | "OCR" | "OTHER";

@@ -21,15 +21,16 @@ import {
   ApiRequestError,
   changePassword,
   deleteAccount,
-  refreshAuthToken,
+  getProfile,
+  logoutAuth,
   updateProfile,
 } from "@/lib/api";
 import {
   clearRefreshTokenCookie,
   clearAuthTokenStorage,
   getRefreshTokenCookie,
-  setRefreshTokenCookie,
 } from "@/lib/auth";
+import { uploadImageToCloudinary } from "@/lib/cloudinary";
 import { UserHeader } from "@/components/layout/user-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,7 +77,7 @@ function SettingsCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white">
+    <div className="flex h-full flex-col rounded-2xl border border-zinc-200 bg-white ">
       <div className="border-b border-zinc-100 px-6 py-5">
         <div className="flex items-start gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50">
@@ -98,14 +99,17 @@ function SettingsCard({
 export default function SettingsPage() {
   const user = useAuthStore((s) => s.user);
   const accessToken = useAuthStore((s) => s.accessToken);
-  const setTokens = useAuthStore((s) => s.setTokens);
-  const updateUser = useAuthStore((s) => s.updateUser);
+  const setUser = useAuthStore((s) => s.setUser);
   const clearSession = useAuthStore((s) => s.clearSession);
 
   const [fullName, setFullName] = useState(user?.full_name ?? "");
   const [subscribed, setSubscribed] = useState(user?.email_subscribed ?? true);
+  const [profileFieldErrors, setProfileFieldErrors] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [pendingProfileImageFile, setPendingProfileImageFile] =
+    useState<File | null>(null);
+  const [profileNotice, setProfileNotice] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [curPw, setCurPw] = useState("");
@@ -115,12 +119,18 @@ export default function SettingsPage() {
   const [show2, setShow2] = useState(false);
   const [show3, setShow3] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
+  const [pwFieldErrors, setPwFieldErrors] = useState<Record<string, string>>({});
   const [pwLoading, setPwLoading] = useState(false);
+  const [pwSaved, setPwSaved] = useState(false);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [showDeletePw, setShowDeletePw] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteInfo, setDeleteInfo] = useState<string | null>(null);
+  const [deleteFieldErrors, setDeleteFieldErrors] = useState<Record<string, string>>({});
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteRedirecting, setDeleteRedirecting] = useState(false);
 
   const pwScore = useMemo(() => scorePassword(newPw), [newPw]);
   const str = strengthLabel(pwScore);
@@ -129,6 +139,60 @@ export default function SettingsPage() {
     if (user?.full_name != null) setFullName(user.full_name);
     if (user?.email_subscribed != null) setSubscribed(user.email_subscribed);
   }, [user?.full_name, user?.email_subscribed]);
+
+  useEffect(() => {
+    let active = true;
+
+    const run = async () => {
+      if (!accessToken) {
+        return;
+      }
+
+      try {
+        const profile = await getProfile(accessToken, user ?? undefined);
+        if (!active) return;
+        setUser(profile);
+        setFullName(profile.full_name);
+        setSubscribed(profile.email_subscribed);
+
+        if (profile.status === "INACTIVE") {
+          setProfileNotice("Your account is inactive. Contact support.");
+        } else if (profile.status === "SUSPENDED") {
+          setProfileNotice("Your account has been suspended. Contact support.");
+        } else if (profile.status === "DELETED") {
+          await redirectToLogin();
+          return;
+        } else {
+          setProfileNotice(null);
+        }
+      } catch (error) {
+        if (!active) return;
+        if (error instanceof ApiRequestError) {
+          if (error.status === 404 || error.status === 401) {
+            await redirectToLogin();
+            return;
+          }
+          if (error.status === 500) {
+            setProfileNotice("Failed to load profile. Please try again.");
+            return;
+          }
+          if (error.status === 503) {
+            setProfileNotice("Service temporarily unavailable. Try again later.");
+            return;
+          }
+          setProfileNotice(error.message);
+          return;
+        }
+        setProfileNotice("Failed to load profile. Please try again.");
+      }
+    };
+
+    void run();
+
+    return () => {
+      active = false;
+    };
+  }, [accessToken, setUser]);
 
   const memberSince = user?.created_at
     ? format(new Date(user.created_at), "MMMM yyyy")
@@ -139,37 +203,6 @@ export default function SettingsPage() {
     clearRefreshTokenCookie();
     clearAuthTokenStorage();
     window.location.assign("/login");
-  }
-
-  async function withRefreshRetry<T>(
-    action: (token: string) => Promise<T>
-  ): Promise<T> {
-    if (!accessToken) {
-      await redirectToLogin();
-      throw new Error("No access token");
-    }
-
-    try {
-      return await action(accessToken);
-    } catch (error) {
-      if (!(error instanceof ApiRequestError) || error.status !== 401) {
-        throw error;
-      }
-      const refreshToken = getRefreshTokenCookie();
-      if (!refreshToken) {
-        await redirectToLogin();
-        throw error;
-      }
-      try {
-        const nextTokens = await refreshAuthToken(refreshToken);
-        setRefreshTokenCookie(nextTokens.refreshToken);
-        setTokens(nextTokens);
-        return action(nextTokens.accessToken);
-      } catch {
-        await redirectToLogin();
-        throw error;
-      }
-    }
   }
 
   return (
@@ -224,8 +257,12 @@ export default function SettingsPage() {
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (!f) return;
+                    setPendingProfileImageFile(f);
+                    setProfileFieldErrors((prev) => ({ ...prev, profileImage: "" }));
                     const url = URL.createObjectURL(f);
-                    updateUser({ profile_image: url });
+                    if (user) {
+                      setUser({ ...user, profile_image: url });
+                    }
                   }}
                 />
 
@@ -246,9 +283,15 @@ export default function SettingsPage() {
                     <Input
                       id="fn"
                       value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
+                      onChange={(e) => {
+                        setFullName(e.target.value);
+                        setProfileFieldErrors((prev) => ({ ...prev, fullName: "" }));
+                      }}
                       className="mt-1.5 h-10 rounded-xl border-zinc-200"
                     />
+                    {profileFieldErrors.fullName ? (
+                      <p className="mt-1.5 text-sm text-red-600">{profileFieldErrors.fullName}</p>
+                    ) : null}
                   </div>
                   <div>
                     <Label htmlFor="em" className="text-zinc-700">
@@ -289,44 +332,68 @@ export default function SettingsPage() {
                 </div>
                 <Switch
                   checked={subscribed}
-                  onCheckedChange={setSubscribed}
+                  onCheckedChange={(checked) => {
+                    setSubscribed(checked);
+                    setProfileFieldErrors((prev) => ({ ...prev, emailSubscribed: "" }));
+                  }}
                 />
               </div>
+              {profileFieldErrors.emailSubscribed ? (
+                <p className="mt-2 text-sm text-red-600">{profileFieldErrors.emailSubscribed}</p>
+              ) : null}
 
               <div className="mt-6 flex flex-wrap items-center gap-3">
                 <Button
                   type="button"
                   className="h-10 rounded-xl bg-zinc-950 px-6 text-white hover:bg-zinc-900"
-                    onClick={async () => {
-                      setSaveError(null);
-                      try {
-                        const payload: { fullName?: string; profileImage?: string } = {};
-                        if (fullName.trim() && fullName.trim() !== user?.full_name) {
-                          payload.fullName = fullName.trim();
-                        }
-                        if (user?.profile_image) {
-                          payload.profileImage = user.profile_image;
-                        }
-                        if (Object.keys(payload).length > 0) {
-                          await withRefreshRetry((token) => updateProfile(token, payload));
-                        }
-                        updateUser({
-                          full_name: fullName,
-                          email_subscribed: subscribed,
-                        });
-                        setSaved(true);
-                        setTimeout(() => setSaved(false), 2500);
-                      } catch (error) {
-                        if (error instanceof ApiRequestError && error.status === 401) {
+                  onClick={async () => {
+                    setSaveError(null);
+                    setProfileFieldErrors({});
+                    try {
+                      const payload: { fullName: string; profileImage: string; emailSubscribed: boolean } = {
+                        fullName: fullName.trim() || user?.full_name || "",
+                        profileImage: user?.profile_image ?? "",
+                        emailSubscribed: subscribed,
+                      };
+
+                      if (pendingProfileImageFile) {
+                        payload.profileImage = await uploadImageToCloudinary(
+                          pendingProfileImageFile,
+                          "profile-images"
+                        );
+                      }
+
+                      const updatedProfile = await updateProfile(accessToken || "", payload);
+                      setUser(updatedProfile);
+                      setFullName(updatedProfile.full_name);
+                      setSubscribed(updatedProfile.email_subscribed);
+                      setPendingProfileImageFile(null);
+                      setProfileNotice(null);
+                      setSaved(true);
+                      setTimeout(() => setSaved(false), 2500);
+                    } catch (error) {
+                      if (error instanceof ApiRequestError) {
+                        if (
+                          error.status === 400 &&
+                          error.message === "Deleted account cannot be updated"
+                        ) {
+                          setSaveError(error.message);
                           await redirectToLogin();
                           return;
                         }
-                        if (error instanceof ApiRequestError && Object.keys(error.fieldErrors).length > 0) {
-                          setSaveError(Object.values(error.fieldErrors)[0]);
+                        if (Object.keys(error.fieldErrors).length > 0) {
+                          setProfileFieldErrors(error.fieldErrors);
                           return;
                         }
-                        setSaveError("Failed to update profile. Try again.");
+                        if (error.status === 401) {
+                          await redirectToLogin();
+                          return;
+                        }
+                        setSaveError(error.message || "Failed to update profile. Please try again.");
+                        return;
                       }
+                      setSaveError("Failed to update profile. Please try again.");
+                    }
                   }}
                 >
                   Save changes
@@ -340,6 +407,11 @@ export default function SettingsPage() {
                   </span>
                 ) : null}
               </div>
+              {profileNotice ? (
+                <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {profileNotice}
+                </p>
+              ) : null}
             </SettingsCard>
           </div>
 
@@ -359,8 +431,18 @@ export default function SettingsPage() {
                       <Input
                         type={show1 ? "text" : "password"}
                         value={curPw}
-                        onChange={(e) => setCurPw(e.target.value)}
-                        className="h-10 rounded-xl border-zinc-200 pr-10 pl-10"
+                        onChange={(e) => {
+                          setCurPw(e.target.value);
+                          if (pwFieldErrors.currentPassword) {
+                            setPwFieldErrors((prev) => ({ ...prev, currentPassword: "" }));
+                          }
+                          if (pwError === "Current password is incorrect") {
+                            setPwError(null);
+                          }
+                        }}
+                        className={`h-10 rounded-xl border-zinc-200 pr-10 pl-10 ${
+                          pwFieldErrors.currentPassword ? "text-red-600" : ""
+                        }`}
                         autoComplete="current-password"
                       />
                       <button
@@ -384,7 +466,12 @@ export default function SettingsPage() {
                         <Input
                           type={show2 ? "text" : "password"}
                           value={newPw}
-                          onChange={(e) => setNewPw(e.target.value)}
+                          onChange={(e) => {
+                            setNewPw(e.target.value);
+                            if (pwFieldErrors.newPassword) {
+                              setPwFieldErrors((prev) => ({ ...prev, newPassword: "" }));
+                            }
+                          }}
                           className="h-10 rounded-xl border-zinc-200 pr-10"
                           autoComplete="new-password"
                         />
@@ -401,6 +488,11 @@ export default function SettingsPage() {
                           )}
                         </button>
                       </div>
+                      {pwFieldErrors.newPassword ? (
+                        <p className="mt-1.5 text-sm text-red-600">
+                          {pwFieldErrors.newPassword}
+                        </p>
+                      ) : null}
                       <div className="mt-3 space-y-1">
                         <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-100">
                           <div
@@ -437,6 +529,11 @@ export default function SettingsPage() {
                           )}
                         </button>
                       </div>
+                      {pwFieldErrors.confirmPassword ? (
+                        <p className="mt-1.5 text-sm text-red-600">
+                          {pwFieldErrors.confirmPassword}
+                        </p>
+                      ) : null}
                     </div>
 
                     {pwError ? (
@@ -449,6 +546,7 @@ export default function SettingsPage() {
                         disabled={pwLoading}
                         className="h-10 w-full rounded-xl bg-zinc-950 px-6 text-white hover:bg-zinc-900 sm:w-auto"
                         onClick={async () => {
+                            setPwFieldErrors({});
                           if (curPw.length < 1) {
                             setPwError("Current password is incorrect.");
                             return;
@@ -458,21 +556,40 @@ export default function SettingsPage() {
                             return;
                           }
                           setPwError(null);
+                          setPwSaved(false);
                           setPwLoading(true);
                           try {
-                            await withRefreshRetry((token) =>
-                              changePassword(token, {
-                                currentPassword: curPw,
-                                newPassword: newPw,
-                                confirmPassword: confPw,
-                              })
-                            );
+                            await changePassword(accessToken || "", {
+                              currentPassword: curPw,
+                              newPassword: newPw,
+                              confirmPassword: confPw,
+                            });
                             setCurPw("");
                             setNewPw("");
                             setConfPw("");
+                            setPwSaved(true);
+                            setTimeout(() => setPwSaved(false), 2500);
                           } catch (error) {
                             if (error instanceof ApiRequestError) {
+                              if (Object.keys(error.fieldErrors).length > 0) {
+                                setPwFieldErrors(error.fieldErrors);
+                                if (error.fieldErrors.confirmPassword) {
+                                  setPwError(error.fieldErrors.confirmPassword);
+                                } else if (error.fieldErrors.currentPassword) {
+                                  setPwError(error.fieldErrors.currentPassword);
+                                }
+                                return;
+                              }
                               if (error.status === 401) {
+                                const msg = (error.message || "").toLowerCase();
+                                if (
+                                  msg.includes("invalid old password") ||
+                                  msg.includes("current password is incorrect")
+                                ) {
+                                  setPwFieldErrors({ currentPassword: "Current password is incorrect" });
+                                  setPwError("Current password is incorrect");
+                                  return;
+                                }
                                 await redirectToLogin();
                                 return;
                               }
@@ -482,7 +599,7 @@ export default function SettingsPage() {
                                 setPwError(error.message);
                               }
                             } else {
-                              setPwError("Failed to change password. Try again.");
+                              setPwError("Failed to change password. Please try again.");
                             }
                           } finally {
                             setPwLoading(false);
@@ -491,6 +608,11 @@ export default function SettingsPage() {
                       >
                         {pwLoading ? "Updating..." : "Update password"}
                       </Button>
+                      {pwSaved ? (
+                        <span className="mt-3 block text-sm font-medium text-green-600">
+                          Password changed successfully
+                        </span>
+                      ) : null}
                     </div>
 
                    
@@ -527,7 +649,16 @@ export default function SettingsPage() {
                 variant="outline"
                 type="button"
                 className="h-10 shrink-0 rounded-xl border-red-200 bg-white px-5 text-red-600 hover:bg-red-50 lg:ml-4"
-                onClick={() => setDeleteOpen(true)}
+                onClick={() => {
+                  setDeleteConfirm("");
+                  setShowDeletePw(false);
+                  setDeleteError(null);
+                  setDeleteInfo(null);
+                  setDeleteFieldErrors({});
+                  setDeleteLoading(false);
+                  setDeleteRedirecting(false);
+                  setDeleteOpen(true);
+                }}
               >
                 Delete account
               </Button>
@@ -537,7 +668,7 @@ export default function SettingsPage() {
       </div>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent className="rounded-2xl border border-zinc-200">
+        <AlertDialogContent className=" font-montserrat  rounded-2xl border border-zinc-200">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete your account?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -547,53 +678,121 @@ export default function SettingsPage() {
           </AlertDialogHeader>
           <div className="space-y-2 py-2">
             <Label htmlFor="del">Enter current password to confirm</Label>
-            <Input
-              id="del"
-              type="password"
-              value={deleteConfirm}
-              onChange={(e) => setDeleteConfirm(e.target.value)}
-              className="h-10 rounded-xl"
-            />
+            <div className="relative mt-1.5">
+              <Input
+                id="del"
+                type={showDeletePw ? "text" : "password"}
+                value={deleteConfirm}
+                disabled={deleteLoading || deleteRedirecting}
+                onChange={(e) => {
+                  setDeleteConfirm(e.target.value);
+                  setDeleteFieldErrors((prev) => ({ ...prev, password: "" }));
+                }}
+                className="h-10 rounded-xl pr-10"
+              />
+              <button
+                type="button"
+                className="absolute top-1/2 right-3 -translate-y-1/2 text-zinc-400 hover:text-zinc-700"
+                onClick={() => setShowDeletePw((prev) => !prev)}
+                aria-label={showDeletePw ? "Hide password" : "Show password"}
+                disabled={deleteLoading || deleteRedirecting}
+              >
+                {showDeletePw ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
+              </button>
+            </div>
+            {deleteFieldErrors.password ? (
+              <p className="text-sm text-red-600">{deleteFieldErrors.password}</p>
+            ) : null}
             {deleteError ? (
               <p className="text-sm text-red-600">{deleteError}</p>
             ) : null}
+            {deleteInfo ? (
+              <p className="text-sm text-emerald-700">{deleteInfo}</p>
+            ) : null}
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteLoading || deleteRedirecting}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 text-white hover:bg-red-600"
-              disabled={!deleteConfirm || deleteLoading}
+              className="bg-red-600 text-white hover:bg-red-600 font-montserrat "
+              disabled={!deleteConfirm || deleteLoading || deleteRedirecting}
               onClick={async (e) => {
                 e.preventDefault();
                 setDeleteError(null);
+                setDeleteInfo(null);
+                setDeleteFieldErrors({});
+                setDeleteRedirecting(false);
                 setDeleteLoading(true);
                 try {
-                  await withRefreshRetry((token) =>
-                    deleteAccount(token, { password: deleteConfirm })
-                  );
+                  await deleteAccount(accessToken || "", { password: deleteConfirm });
+                  const refreshToken = getRefreshTokenCookie();
+                  if (refreshToken) {
+                    try {
+                      await logoutAuth(refreshToken);
+                    } catch {
+                      // The backend already revoked sessions if the delete succeeded.
+                    }
+                  }
                   clearSession();
                   clearRefreshTokenCookie();
                   clearAuthTokenStorage();
-                  window.location.assign("/login");
+                  setDeleteRedirecting(true);
+                  setDeleteInfo("Account deleted successfully. Redirecting to login...");
+                  window.setTimeout(() => {
+                    window.location.replace("/login");
+                  }, 1200);
+                  return;
                 } catch (error) {
                   if (error instanceof ApiRequestError) {
+                    const normalizedDeleteMessage = error.message.trim().toLowerCase();
+                    if (Object.keys(error.fieldErrors).length > 0) {
+                      setDeleteFieldErrors(error.fieldErrors);
+                      return;
+                    }
+                    if (error.status === 401 && normalizedDeleteMessage.includes("invalid password")) {
+                      setDeleteFieldErrors({ password: "Incorrect password" });
+                      return;
+                    }
+                    if (error.status === 400 && error.message === "Account is already deleted") {
+                      clearSession();
+                      clearRefreshTokenCookie();
+                      clearAuthTokenStorage();
+                      window.location.replace("/login");
+                      return;
+                    }
                     if (error.status === 401) {
                       clearSession();
                       clearRefreshTokenCookie();
                       clearAuthTokenStorage();
-                      window.location.assign("/login");
+                      window.location.replace("/login");
                       return;
                     }
                     setDeleteError(error.message || "Failed to delete account. Try again.");
                   } else {
-                    setDeleteError("Failed to delete account. Try again.");
+                    const fallbackMessage =
+                      typeof error === "object" &&
+                      error !== null &&
+                      "message" in error &&
+                      typeof (error as { message?: unknown }).message === "string"
+                        ? ((error as { message: string }).message || "Failed to delete account. Please try again.")
+                        : "Failed to delete account. Please try again.";
+                    setDeleteError(fallbackMessage);
                   }
                 } finally {
                   setDeleteLoading(false);
                 }
               }}
             >
-              {deleteLoading ? "Deleting..." : "Delete my account"}
+              {deleteLoading
+                ? "Deleting..."
+                : deleteRedirecting
+                  ? "Redirecting..."
+                  : "Delete my account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

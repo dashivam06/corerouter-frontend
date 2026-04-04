@@ -6,7 +6,8 @@ import Link from "next/link";
 import { MoreHorizontal, Plus } from "lucide-react";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { AdminStatCard } from "@/components/admin/stat-card";
-import { adminFetchModels } from "@/lib/admin-api";
+import { adminCreateProvider, adminFetchModels } from "@/lib/admin-api";
+import { uploadImageToCloudinary } from "@/lib/cloudinary";
 import { formatRelative } from "@/lib/formatters";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -40,6 +41,8 @@ export default function AdminModelsPage() {
   const [providerImageName, setProviderImageName] = useState("");
   const [providerImagePreview, setProviderImagePreview] = useState<string>("");
   const [dragActive, setDragActive] = useState(false);
+  const [providerSubmitting, setProviderSubmitting] = useState(false);
+  const [providerError, setProviderError] = useState<string | null>(null);
   const [isSelectingProviders, setIsSelectingProviders] = useState(false);
   const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set());
   const [deleteProviderDialog, setDeleteProviderDialog] = useState(false);
@@ -405,15 +408,24 @@ export default function AdminModelsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (providerName.trim() && providerImage) {
-                      // Handle adding provider (mock for now)
-                      console.log("Adding provider:", { 
-                        name: providerName, 
-                        company: providerCompany,
-                        country: providerCountry,
-                        image: providerImage 
+                  onClick={async () => {
+                    if (!providerName.trim() || !providerImage) return;
+
+                    setProviderError(null);
+                    setProviderSubmitting(true);
+                    try {
+                      const logoUrl = await uploadImageToCloudinary(
+                        providerImage,
+                        "provider"
+                      );
+
+                      await adminCreateProvider({
+                        name: providerName.trim(),
+                        company: providerCompany.trim() || undefined,
+                        country: providerCountry || undefined,
+                        logo: logoUrl,
                       });
+
                       setProviderDialogOpen(false);
                       setProviderName("");
                       setProviderCompany("");
@@ -421,14 +433,25 @@ export default function AdminModelsPage() {
                       setProviderImage(null);
                       setProviderImageName("");
                       setProviderImagePreview("");
+                    } catch (error) {
+                      setProviderError(
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to create provider."
+                      );
+                    } finally {
+                      setProviderSubmitting(false);
                     }
                   }}
                   className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-900 disabled:opacity-50 font-[Montserrat]"
-                  disabled={!providerName.trim() || !providerImage}
+                  disabled={!providerName.trim() || !providerImage || providerSubmitting}
                 >
-                  Add provider
+                  {providerSubmitting ? "Adding..." : "Add provider"}
                 </button>
               </DialogFooter>
+              {providerError ? (
+                <p className="px-1 text-sm text-red-600">{providerError}</p>
+              ) : null}
             </DialogContent>
           </Dialog>
         </div>
