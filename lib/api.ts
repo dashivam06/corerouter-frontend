@@ -38,6 +38,7 @@ const API_BASE_URL = (
 const AUTH_BASE = `${API_BASE_URL}/api/v1/auth`;
 const USER_PROFILE_BASE = `${API_BASE_URL}/api/v1/user/profile`;
 const API_KEYS_BASE = `${API_BASE_URL}/api/v1/apikeys`;
+const ADMIN_API_KEYS_BASE = `${API_BASE_URL}/api/v1/admin/apikeys`;
 const MODELS_BASE = `${API_BASE_URL}/api/v1/models`;
 const ADMIN_MODELS_BASE = `${API_BASE_URL}/api/v1/admin/models`;
 const PROVIDERS_BASE = `${API_BASE_URL}/api/v1/providers`;
@@ -57,6 +58,58 @@ export type ApiKeyRecord = {
   status: "ACTIVE" | "INACTIVE" | "REVOKED" | "EXPIRED";
   createdAt: string;
   lastUsedAt: string | null;
+};
+
+export type AdminApiKeyStatus = "ACTIVE" | "INACTIVE" | "REVOKED";
+
+export type AdminApiKeyInsightsResponse = {
+  totalKeys: number;
+  active: number;
+  inactive: number;
+  revoked: number;
+};
+
+export type AdminApiKeyAnalyticsItem = {
+  date: string;
+  created?: number;
+  revoked?: number;
+  active?: number;
+  inactive?: number;
+  total?: number;
+};
+
+export type AdminApiKeyAnalyticsResponse = {
+  dailyAnalytics: AdminApiKeyAnalyticsItem[];
+  totalCreated: number;
+  totalRevoked: number;
+  totalActive: number;
+  totalInactive: number;
+};
+
+export type AdminApiKeyListItem = {
+  apiKeyId: number;
+  key: string;
+  description: string;
+  status: AdminApiKeyStatus;
+  createdAt: string;
+  lastUsedAt: string | null;
+  dailyLimit: number;
+  monthlyLimit: number;
+  dailyUsed: number;
+  monthlyUsed: number;
+  userId: number | null;
+  userFullName?: string | null;
+  userEmail?: string | null;
+  userName?: string | null;
+};
+
+export type PaginatedAdminApiKeyListResponse = {
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  isLastPage: boolean;
+  apiKeys: AdminApiKeyListItem[];
 };
 
 type ApiKeyUpdateBody = {
@@ -1313,6 +1366,95 @@ async function requestAdminUsers<TRes>(
   );
 }
 
+async function requestAdminApiKeys<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${ADMIN_API_KEYS_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError(
+      "You don't have permission to perform this action.",
+      403,
+      parsed?.errors ?? []
+    );
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 403) {
+      const parsed = await parseResponse<TRes>(response);
+      throw new ApiRequestError(
+        "You don't have permission to perform this action.",
+        403,
+        parsed?.errors ?? []
+      );
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
 async function requestWalletTopUp<TRes>(
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
@@ -1812,6 +1954,39 @@ export async function updateAdminUserStatus(userId: number, status: UserStatus):
   return requestAdminUsers<UserProfileResponse>(
     "PATCH",
     `/${userId}/status?status=${encodeURIComponent(status)}`
+  );
+}
+
+export async function getAdminApiKeyInsights(): Promise<AdminApiKeyInsightsResponse> {
+  return requestAdminApiKeys<AdminApiKeyInsightsResponse>("GET", "/insights");
+}
+
+export async function getAdminApiKeyAnalytics(from: string, to: string): Promise<AdminApiKeyAnalyticsResponse> {
+  return requestAdminApiKeys<AdminApiKeyAnalyticsResponse>(
+    "GET",
+    `/analytics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  );
+}
+
+export async function getAdminApiKeyList(params: {
+  page?: number;
+  size?: number;
+  status?: AdminApiKeyStatus;
+}): Promise<PaginatedAdminApiKeyListResponse> {
+  const query = new URLSearchParams();
+  query.set("page", String(params.page ?? 0));
+  query.set("size", String(params.size ?? 20));
+  if (params.status) query.set("status", params.status);
+  return requestAdminApiKeys<PaginatedAdminApiKeyListResponse>("GET", `/list?${query.toString()}`);
+}
+
+export async function updateAdminApiKeyStatus(
+  apiKeyId: number,
+  status: AdminApiKeyStatus
+): Promise<ApiKeyRecord> {
+  return requestAdminApiKeys<ApiKeyRecord>(
+    "PATCH",
+    `/${apiKeyId}/status?status=${encodeURIComponent(status)}`
   );
 }
 

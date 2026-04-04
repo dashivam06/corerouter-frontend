@@ -5,8 +5,12 @@ import {
   deleteBillingConfig as apiDeleteBillingConfig,
   deleteDocumentation as apiDeleteDocumentation,
   deleteProvider as apiDeleteProvider,
+  deleteApiKey as apiDeleteApiKey,
   fetchProviders as apiFetchProviders,
   getAdminBillingInsights as apiGetAdminBillingInsights,
+  getAdminApiKeyAnalytics as apiGetAdminApiKeyAnalytics,
+  getAdminApiKeyInsights as apiGetAdminApiKeyInsights,
+  getAdminApiKeyList as apiGetAdminApiKeyList,
   getAdminModelControlDetails as apiGetAdminModelControlDetails,
   getAdminUsageByTask as apiGetAdminUsageByTask,
   getAdminModelDetails as apiGetAdminModelDetails,
@@ -18,6 +22,9 @@ import {
   getAdminUserAnalytics as apiGetAdminUserAnalytics,
   getAdminUserInsights as apiGetAdminUserInsights,
   getAdminUserList as apiGetAdminUserList,
+  deactivateApiKey as apiDeactivateApiKey,
+  enableApiKey as apiEnableApiKey,
+  updateAdminApiKeyStatus as apiUpdateAdminApiKeyStatus,
   updateAdminUserStatus as apiUpdateAdminUserStatus,
   listBillingConfigs as apiListBillingConfigs,
   listDocumentationByModel as apiListDocumentationByModel,
@@ -30,6 +37,7 @@ import {
   type BillingConfigResponse,
   type BillingConfigUpdateBody,
   type BillingInsightsResponse,
+  type ApiKeyRecord,
   type DailyUserAnalyticsResponse,
   type ModelControlDetailsResponse,
   type DocumentationCreateBody,
@@ -37,6 +45,10 @@ import {
   type DocumentationUpdateBody,
   type ModelResponse,
   type AdminUserInsightsResponse,
+  type AdminApiKeyAnalyticsResponse,
+  type AdminApiKeyInsightsResponse,
+  type AdminApiKeyListItem,
+  type AdminApiKeyStatus,
   type PaginatedUserListResponse,
   type ProviderResponse,
   type RecordUsageBody,
@@ -47,7 +59,6 @@ import {
 } from "@/lib/api";
 
 import {
-  adminApiKeys,
   adminHourlyTaskVolumeToday,
   adminRevenueSevenDaysAgoByHour,
   adminRevenueTodayByHour,
@@ -165,8 +176,172 @@ export async function adminUpdateUserStatus(userId: number, status: UserStatus):
   };
 }
 
+export type AdminApiKeyListItemView = AdminApiKeyListItem & {
+  userName: string | null;
+};
+
+export type AdminApiKeyInsightsView = {
+  totalKeys: number;
+  activeKeys: number;
+  inactiveKeys: number;
+  revokedKeys: number;
+  keysCreatedThisMonth: number;
+};
+
+function toNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : Number(value ?? 0) || 0;
+}
+
+function toAnalyticsDate(value: unknown): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  return value;
+}
+
+function normalizeApiKeyAnalyticsResponse(raw: unknown): AdminApiKeyAnalyticsResponse {
+  const source = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const dailySource = Array.isArray(source.dailyAnalytics)
+    ? source.dailyAnalytics
+    : Array.isArray(source.analytics)
+      ? source.analytics
+      : Array.isArray(source.data)
+        ? source.data
+        : Array.isArray(source.daily_analytics)
+          ? source.daily_analytics
+          : Array.isArray(source.series)
+            ? source.series
+            : Array.isArray(source.items)
+              ? source.items
+              : Array.isArray(source.records)
+                ? source.records
+                : Array.isArray(source.days)
+                  ? source.days
+                  : [];
+
+  return {
+    dailyAnalytics: dailySource.map((entry) => {
+      const item = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
+      return {
+        date: toAnalyticsDate(
+          item.date ??
+            item.day ??
+            item.month ??
+            item.createdAt ??
+            item.created_at ??
+            item.bucketDate ??
+            item.bucket_date ??
+            item.statDate ??
+            item.stat_date
+        ),
+        created: toNumber(
+          item.created ??
+            item.createdCount ??
+            item.totalCreated ??
+            item.apiKeysCreated ??
+            item.created_count ??
+            item.total_created ??
+            item.api_keys_created
+        ),
+        revoked: toNumber(
+          item.revoked ??
+            item.revokedCount ??
+            item.totalRevoked ??
+            item.apiKeysRevoked ??
+            item.revoked_count ??
+            item.total_revoked ??
+            item.api_keys_revoked
+        ),
+        active: toNumber(
+          item.active ??
+            item.activeCount ??
+            item.totalActive ??
+            item.apiKeysActive ??
+            item.active_count ??
+            item.total_active ??
+            item.api_keys_active
+        ),
+        inactive: toNumber(
+          item.inactive ??
+            item.inactiveCount ??
+            item.totalInactive ??
+            item.apiKeysInactive ??
+            item.inactive_count ??
+            item.total_inactive ??
+            item.api_keys_inactive
+        ),
+        total: toNumber(item.total ?? item.totalKeys ?? item.count ?? item.total_keys),
+      };
+    }),
+    totalCreated: toNumber(source.totalCreated ?? source.created ?? source.createdCount ?? source.total_created ?? source.created_count),
+    totalRevoked: toNumber(source.totalRevoked ?? source.revoked ?? source.revokedCount ?? source.total_revoked ?? source.revoked_count),
+    totalActive: toNumber(source.totalActive ?? source.active ?? source.activeCount ?? source.total_active ?? source.active_count),
+    totalInactive: toNumber(source.totalInactive ?? source.inactive ?? source.inactiveCount ?? source.total_inactive ?? source.inactive_count),
+  };
+}
+
+export async function adminFetchApiKeyInsights(): Promise<AdminApiKeyInsightsView> {
+  const insights = await apiGetAdminApiKeyInsights();
+  return {
+    totalKeys: toNumber(insights.totalKeys),
+    activeKeys: toNumber(insights.active),
+    inactiveKeys: toNumber(insights.inactive),
+    revokedKeys: toNumber(insights.revoked),
+    keysCreatedThisMonth: 0,
+  };
+}
+
+export async function adminFetchApiKeyAnalytics(from: string, to: string): Promise<AdminApiKeyAnalyticsResponse> {
+  const analytics = await apiGetAdminApiKeyAnalytics(from, to);
+  return normalizeApiKeyAnalyticsResponse(analytics);
+}
+
 export async function adminFetchApiKeys(): Promise<AdminApiKey[]> {
-  return mock(adminApiKeys);
+  const result = await apiGetAdminApiKeyList({ page: 0, size: 1000 });
+  return result.apiKeys.map((key) => ({
+    api_key_id: key.apiKeyId,
+    created_at: key.createdAt,
+    daily_limit: key.dailyLimit,
+    daily_used: key.dailyUsed,
+    description: key.description,
+    key: key.key,
+    last_used_at: key.lastUsedAt,
+    monthly_limit: key.monthlyLimit,
+    monthly_used: key.monthlyUsed,
+    status: key.status,
+    user_id: key.userId ?? 0,
+  }));
+}
+
+export async function adminFetchApiKeysPage(params: {
+  page: number;
+  size: number;
+  status?: AdminApiKeyStatus;
+}): Promise<{ page: number; size: number; totalElements: number; totalPages: number; isLastPage: boolean; apiKeys: AdminApiKeyListItemView[] }> {
+  const result = await apiGetAdminApiKeyList(params);
+  return {
+    ...result,
+    apiKeys: result.apiKeys.map((key) => ({
+      ...key,
+      userName: key.userName ?? key.userFullName ?? key.userEmail ?? null,
+      userEmail: key.userEmail ?? null,
+    })),
+  };
+}
+
+export async function adminUpdateApiKeyStatus(apiKeyId: number, status: AdminApiKeyStatus): Promise<ApiKeyRecord> {
+  return apiUpdateAdminApiKeyStatus(apiKeyId, status);
 }
 
 export async function adminFetchModels(): Promise<AdminModel[]> {
