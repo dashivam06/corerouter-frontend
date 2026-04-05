@@ -128,70 +128,17 @@ function toMonthKey(date: Date): string {
 function normalizeAnalyticsItem(item: AdminApiKeyAnalyticsItem) {
   return {
     date: item.date,
+    created: item.created ?? 0,
     revoked: item.revoked ?? 0,
-    active: item.active ?? 0,
   };
-}
-
-function buildApiKeySeriesFromList(range: AnalyticsRange, items: AdminApiKeyListItemView[]) {
-  const rangeBounds = getRangeBounds(range);
-  const bucketMap = new Map<string, { active: number; revoked: number }>();
-
-  for (const item of items) {
-    const createdAt = asDate(item.createdAt);
-    if (!createdAt) continue;
-    if (createdAt.getTime() < rangeBounds.from.getTime() || createdAt.getTime() > rangeBounds.to.getTime()) continue;
-
-    const bucketKey = range === "7d" || range === "30d" ? toDateKey(createdAt) : toMonthKey(createdAt);
-    const current = bucketMap.get(bucketKey) ?? { active: 0, revoked: 0 };
-    if (item.status === "ACTIVE") current.active += 1;
-    if (item.status === "REVOKED") current.revoked += 1;
-    bucketMap.set(bucketKey, current);
-  }
-
-  if (range === "7d" || range === "30d") {
-    const rows: Array<{ label: string; active: number; revoked: number }> = [];
-    for (
-      let cursor = new Date(rangeBounds.from);
-      cursor.getTime() <= rangeBounds.to.getTime();
-      cursor.setDate(cursor.getDate() + 1)
-    ) {
-      const key = toDateKey(cursor);
-      const bucket = bucketMap.get(key) ?? { active: 0, revoked: 0 };
-      rows.push({
-        label: cursor.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-        active: bucket.active,
-        revoked: bucket.revoked,
-      });
-    }
-
-    return rows;
-  }
-
-  const rows: Array<{ label: string; active: number; revoked: number }> = [];
-  for (
-    let cursor = new Date(rangeBounds.from.getFullYear(), rangeBounds.from.getMonth(), 1);
-    cursor.getTime() <= rangeBounds.to.getTime();
-    cursor.setMonth(cursor.getMonth() + 1)
-  ) {
-    const key = toMonthKey(cursor);
-    const bucket = bucketMap.get(key) ?? { active: 0, revoked: 0 };
-    rows.push({
-      label: cursor.toLocaleDateString(undefined, { month: "short" }),
-      active: bucket.active,
-      revoked: bucket.revoked,
-    });
-  }
-
-  return rows;
 }
 
 function buildAnalyticsSeries(range: AnalyticsRange, items: AdminApiKeyAnalyticsItem[]) {
   const rangeBounds = getRangeBounds(range);
-  const dailyMap = new Map<string, ReturnType<typeof normalizeAnalyticsItem>>();
+  const bucketMap = new Map<string, ReturnType<typeof normalizeAnalyticsItem>>();
 
   for (const item of items.map(normalizeAnalyticsItem)) {
-    dailyMap.set(item.date, item);
+    bucketMap.set(item.date, item);
   }
 
   const filledDaily: ReturnType<typeof normalizeAnalyticsItem>[] = [];
@@ -202,10 +149,10 @@ function buildAnalyticsSeries(range: AnalyticsRange, items: AdminApiKeyAnalytics
   ) {
     const key = toDateKey(cursor);
     filledDaily.push(
-      dailyMap.get(key) ?? {
+      bucketMap.get(key) ?? {
         date: key,
+        created: 0,
         revoked: 0,
-        active: 0,
       }
     );
   }
@@ -216,22 +163,22 @@ function buildAnalyticsSeries(range: AnalyticsRange, items: AdminApiKeyAnalytics
         month: "short",
         day: "numeric",
       }),
+      created: item.created,
       revoked: item.revoked,
-      active: item.active,
     }));
   }
 
-  const grouped = new Map<string, { labelDate: Date; revoked: number; active: number }>();
+  const grouped = new Map<string, { labelDate: Date; created: number; revoked: number }>();
   for (const item of filledDaily) {
     const date = new Date(`${item.date}T00:00:00`);
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
     const existing = grouped.get(key) ?? {
       labelDate: new Date(date.getFullYear(), date.getMonth(), 1),
+      created: 0,
       revoked: 0,
-      active: 0,
     };
+    existing.created += item.created;
     existing.revoked += item.revoked;
-    existing.active += item.active;
     grouped.set(key, existing);
   }
 
@@ -239,8 +186,8 @@ function buildAnalyticsSeries(range: AnalyticsRange, items: AdminApiKeyAnalytics
     .sort((left, right) => left.labelDate.getTime() - right.labelDate.getTime())
     .map((item) => ({
       label: item.labelDate.toLocaleDateString(undefined, { month: "short" }),
+      created: item.created,
       revoked: item.revoked,
-      active: item.active,
     }));
 }
 
@@ -367,8 +314,8 @@ export default function AdminApiKeysPage() {
   const allKeys = allKeysQuery.data?.apiKeys ?? [];
 
   const chartData = useMemo(
-    () => buildApiKeySeriesFromList(analyticsRange, allKeys),
-    [analyticsRange, allKeys]
+    () => buildAnalyticsSeries(analyticsRange, analytics?.dailyAnalytics ?? []),
+    [analytics, analyticsRange]
   );
 
   const statusSummary = useMemo(
@@ -551,7 +498,7 @@ export default function AdminApiKeysPage() {
                 <YAxis tick={chartTheme.axis.tick} axisLine={false} tickLine={false} width={36} />
                 <Tooltip contentStyle={chartTheme.tooltip.contentStyle} />
                 <Bar dataKey="revoked" name="Revoked" fill="#dc2626" radius={0} minPointSize={4} />
-                <Bar dataKey="active" name="Active" fill="#09090b" radius={0} minPointSize={4} />
+                <Bar dataKey="created" name="Created" fill="#22c55e" radius={0} minPointSize={4} />
               </BarChart>
             </ResponsiveContainer>
           </div>

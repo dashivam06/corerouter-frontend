@@ -39,6 +39,8 @@ const AUTH_BASE = `${API_BASE_URL}/api/v1/auth`;
 const USER_PROFILE_BASE = `${API_BASE_URL}/api/v1/user/profile`;
 const API_KEYS_BASE = `${API_BASE_URL}/api/v1/apikeys`;
 const ADMIN_API_KEYS_BASE = `${API_BASE_URL}/api/v1/admin/apikeys`;
+const TASKS_BASE = `${API_BASE_URL}/api/v1/tasks`;
+const ADMIN_TASKS_BASE = `${API_BASE_URL}/api/v1/admin/tasks`;
 const MODELS_BASE = `${API_BASE_URL}/api/v1/models`;
 const ADMIN_MODELS_BASE = `${API_BASE_URL}/api/v1/admin/models`;
 const PROVIDERS_BASE = `${API_BASE_URL}/api/v1/providers`;
@@ -49,7 +51,7 @@ const ADMIN_USERS_BASE = `${API_BASE_URL}/api/v1/admin/users`;
 const WALLET_TOPUP_BASE = `${API_BASE_URL}/api/wallet/topup`;
 
 // API Key Types
-export type ApiKeyRecord = {
+export type ApiKeyResponse = {
   apiKeyId: number;
   key: string;
   description: string;
@@ -58,7 +60,11 @@ export type ApiKeyRecord = {
   status: "ACTIVE" | "INACTIVE" | "REVOKED" | "EXPIRED";
   createdAt: string;
   lastUsedAt: string | null;
+  userEmail?: string | null;
+  userName?: string | null;
 };
+
+export type ApiKeyRecord = ApiKeyResponse;
 
 export type AdminApiKeyStatus = "ACTIVE" | "INACTIVE" | "REVOKED";
 
@@ -69,21 +75,18 @@ export type AdminApiKeyInsightsResponse = {
   revoked: number;
 };
 
-export type AdminApiKeyAnalyticsItem = {
+export type DailyApiKeyAnalyticsResponse = {
   date: string;
-  created?: number;
-  revoked?: number;
-  active?: number;
-  inactive?: number;
-  total?: number;
+  created: number;
+  revoked: number;
 };
 
+export type AdminApiKeyAnalyticsItem = DailyApiKeyAnalyticsResponse;
+
 export type AdminApiKeyAnalyticsResponse = {
-  dailyAnalytics: AdminApiKeyAnalyticsItem[];
+  dailyAnalytics: DailyApiKeyAnalyticsResponse[];
   totalCreated: number;
   totalRevoked: number;
-  totalActive: number;
-  totalInactive: number;
 };
 
 export type AdminApiKeyListItem = {
@@ -108,7 +111,8 @@ export type PaginatedAdminApiKeyListResponse = {
   size: number;
   totalElements: number;
   totalPages: number;
-  isLastPage: boolean;
+  lastPage: boolean;
+  isLastPage?: boolean;
   apiKeys: AdminApiKeyListItem[];
 };
 
@@ -256,6 +260,74 @@ export type UserUsageInsightsResponse = {
   mostUsedModel: string | null;
   avgCostPerRequest: number;
   avgCostPerRequestChangePercent: number;
+};
+
+export type TaskStatusValue = "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
+export type AdminTaskStatusFilter = "ALL" | TaskStatusValue;
+
+export type TaskAsyncResponse = {
+  task_id: string;
+  status: "QUEUED";
+};
+
+export type TaskStatusResponse = {
+  status: TaskStatusValue;
+  result: Record<string, unknown> | null;
+};
+
+export type TaskInsightsResponse = {
+  totalTasks: number;
+  completed: number;
+  failed: number;
+  processing: number;
+  queued: number;
+};
+
+export type DailyTaskAnalyticsResponse = {
+  date: string;
+  total: number;
+  queued: number;
+  processing: number;
+  completed: number;
+  failed: number;
+};
+
+export type AdminTaskAnalyticsResponse = {
+  fromDate: string;
+  toDate: string;
+  statusFilter: AdminTaskStatusFilter;
+  dailyAnalytics: DailyTaskAnalyticsResponse[];
+  totalTasks: number;
+  completed: number;
+  failed: number;
+  processing: number;
+  queued: number;
+};
+
+export type TaskListItemResponse = {
+  taskId: string;
+  status: TaskStatusValue;
+  apiKeyId: number | null;
+  modelId: number | null;
+  createdAt: string;
+  updatedAt: string | null;
+  completedAt: string | null;
+  processingTimeMs: number | null;
+};
+
+export type PaginatedTaskListResponse = {
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  tasks: TaskListItemResponse[];
+  lastPage: boolean;
+};
+
+export type CreateTaskBody = {
+  apiKeyId: number;
+  modelId: number;
+  payload: Record<string, unknown>;
 };
 
 export type UserStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "BANNED" | "DELETED";
@@ -447,7 +519,7 @@ export class ApiRequestError extends Error {
 function fallbackMessage(status: number): string {
   if (status === 404) return "Not found";
   if (status === 503) return "Service temporarily unavailable. Please try again later.";
-  if (status >= 500) return "Something went wrong on our end. Please try again.";
+  if (status >= 500) return "Something went wrong. Please try again.";
   return "Something went wrong. Please try again.";
 }
 
@@ -739,6 +811,15 @@ async function requestApiKeys<TRes>(
     );
   }
 
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError(
+      "You don't have permission to perform this action.",
+      403,
+      parsed?.errors ?? []
+    );
+  }
+
   if (response.status === 401) {
     const refreshToken = getRefreshTokenCookie();
     if (!refreshToken) {
@@ -757,9 +838,85 @@ async function requestApiKeys<TRes>(
       redirectToLogin();
       throw new ApiRequestError("Session expired. Please log in again.", 401);
     }
+
+    if (response.status === 401) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 403) {
+      const parsed = await parseResponse<TRes>(response);
+      throw new ApiRequestError(
+        "You don't have permission to perform this action.",
+        403,
+        parsed?.errors ?? []
+      );
+    }
   }
 
   const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestTasksByApiKey<TRes>(
+  method: "GET" | "POST",
+  path: string,
+  rawApiKey: string,
+  body?: Record<string, unknown>
+): Promise<TRes> {
+  const trimmedKey = rawApiKey.trim();
+  if (!trimmedKey) {
+    throw new ApiRequestError("Invalid or inactive API key.", 401);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${TASKS_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${trimmedKey}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+
+  if (response.status === 403) {
+    throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+  }
+
+  if (response.status === 400 || response.status === 401) {
+    const message = (parsed?.message ?? "").toLowerCase();
+    if (
+      message.includes("authorization header") ||
+      message.includes("invalid api key") ||
+      message.includes("api key is not active") ||
+      message.includes("api key not active")
+    ) {
+      throw new ApiRequestError("Invalid or inactive API key.", response.status, parsed?.errors ?? []);
+    }
+  }
+
   if (!parsed) {
     if (!response.ok) {
       throw new ApiRequestError(fallbackMessage(response.status), response.status);
@@ -904,6 +1061,12 @@ async function requestAdminModels<TRes>(
       setRefreshTokenCookie(nextTokens.refreshToken);
       response = await doFetch(nextTokens.accessToken);
     } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 401) {
       clearAllAuthClientTokens();
       redirectToLogin();
       throw new ApiRequestError("Session expired. Please log in again.", 401);
@@ -1433,6 +1596,93 @@ async function requestAdminApiKeys<TRes>(
         403,
         parsed?.errors ?? []
       );
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestAdminTasks<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${ADMIN_TASKS_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 401) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 403) {
+      const parsed = await parseResponse<TRes>(response);
+      throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
     }
   }
 
@@ -1988,6 +2238,129 @@ export async function updateAdminApiKeyStatus(
     "PATCH",
     `/${apiKeyId}/status?status=${encodeURIComponent(status)}`
   );
+}
+
+export async function createTask(
+  rawApiKey: string,
+  body: CreateTaskBody
+): Promise<TaskAsyncResponse> {
+  return requestTasksByApiKey<TaskAsyncResponse>("POST", "", rawApiKey, body);
+}
+
+export async function getTaskStatus(
+  rawApiKey: string,
+  taskId: string
+): Promise<TaskStatusResponse> {
+  return requestTasksByApiKey<TaskStatusResponse>("GET", `/${encodeURIComponent(taskId)}`, rawApiKey);
+}
+
+export async function pollTaskStatus(
+  taskId: string,
+  rawApiKey: string,
+  onStatus?: (status: TaskStatusResponse) => void
+): Promise<TaskStatusResponse> {
+  const INTERVALS = [1000, 2000, 4000, 8000, 16000];
+  const MAX_ATTEMPTS = 30;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const delayMs = INTERVALS[Math.min(attempt, INTERVALS.length - 1)];
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+    try {
+      const status = await getTaskStatus(rawApiKey, taskId);
+      onStatus?.(status);
+
+      if (status.status === "COMPLETED" || status.status === "FAILED") {
+        return status;
+      }
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        const lower = error.message.toLowerCase();
+        const isAuthError = error.status === 400 || error.status === 401;
+        const authRelated =
+          lower.includes("invalid or inactive api key") ||
+          lower.includes("authorization") ||
+          lower.includes("invalid api key") ||
+          lower.includes("api key is not active");
+
+        if (isAuthError && authRelated) {
+          throw new ApiRequestError("Invalid or inactive API key.", error.status);
+        }
+
+        if (error.status === 500) {
+          continue;
+        }
+      }
+
+      throw error;
+    }
+  }
+
+  throw new ApiRequestError("Task polling timed out after 5 minutes.", 408);
+}
+
+export async function getAdminTaskInsights(): Promise<TaskInsightsResponse> {
+  return requestAdminTasks<TaskInsightsResponse>("GET", "/insights");
+}
+
+function normalizeAdminTaskStatusFilter(
+  value?: AdminTaskStatusFilter | string
+): AdminTaskStatusFilter {
+  const normalized = (value ?? "ALL").trim().toUpperCase();
+
+  if (normalized === "ALL") return "ALL";
+  if (normalized === "QUEUED") return "QUEUED";
+  if (normalized === "PROCESSING") return "PROCESSING";
+  if (normalized === "COMPLETED") return "COMPLETED";
+  if (normalized === "FAILED") return "FAILED";
+
+  if (
+    normalized === "QUENCEED" ||
+    normalized === "QUEEUED" ||
+    normalized === "QUEUD" ||
+    normalized.includes("QUEUE")
+  ) {
+    return "QUEUED";
+  }
+
+  return "ALL";
+}
+
+export async function getAdminTaskAnalytics(params: {
+  from: string;
+  to: string;
+  status?: AdminTaskStatusFilter | string;
+}): Promise<AdminTaskAnalyticsResponse> {
+  const statusFilter = normalizeAdminTaskStatusFilter(params.status);
+  const query = new URLSearchParams();
+  query.set("from", params.from);
+  query.set("to", params.to);
+  if (statusFilter !== "ALL") {
+    query.set("status", statusFilter);
+  }
+  return requestAdminTasks<AdminTaskAnalyticsResponse>("GET", `/analytics?${query.toString()}`);
+}
+
+export async function getAdminTaskList(params: {
+  page?: number;
+  size?: number;
+  status?: AdminTaskStatusFilter | string;
+}): Promise<PaginatedTaskListResponse> {
+  const page = params.page ?? 0;
+  const size = params.size ?? 20;
+  if (page < 0 || size <= 0) {
+    throw new ApiRequestError("Page must be >= 0 and size must be > 0", 400);
+  }
+
+  const statusFilter = normalizeAdminTaskStatusFilter(params.status);
+  const query = new URLSearchParams();
+  query.set("page", String(page));
+  query.set("size", String(size));
+  if (statusFilter !== "ALL") {
+    query.set("status", statusFilter);
+  }
+
+  return requestAdminTasks<PaginatedTaskListResponse>("GET", `/list?${query.toString()}`);
 }
 
 export async function getAdminBillingInsights(): Promise<BillingInsightsResponse> {

@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { Input } from "@/components/ui/input";
 
 export function OneTimeRevealModal({
   open,
@@ -43,11 +44,14 @@ export function OneTimeRevealModal({
           </DialogDescription>
         </DialogHeader>
         <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-700">
-          Please copy this key now. It will not be shown again.
+          Store this key now — it will never be shown again.
         </div>
-        <div className="rounded-xl bg-zinc-950 p-4 font-mono text-sm break-all text-green-400">
-          {secret}
-        </div>
+        <Input
+          readOnly
+          value={secret ?? ""}
+          className="h-11 rounded-xl border-zinc-200 bg-white font-mono text-sm text-zinc-950"
+          aria-label="New API key"
+        />
         <Button
           type="button"
           variant="outline"
@@ -60,8 +64,9 @@ export function OneTimeRevealModal({
           type="button"
           className="w-full rounded-xl bg-zinc-950 text-white hover:bg-zinc-900"
           onClick={onAcknowledge}
+          disabled={!copied}
         >
-          I&apos;ve copied my key
+          {copied ? "I've copied my key" : "Copy the key to continue"}
         </Button>
       </DialogContent>
     </Dialog>

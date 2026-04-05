@@ -11,6 +11,9 @@ import {
   getAdminApiKeyAnalytics as apiGetAdminApiKeyAnalytics,
   getAdminApiKeyInsights as apiGetAdminApiKeyInsights,
   getAdminApiKeyList as apiGetAdminApiKeyList,
+  getAdminTaskAnalytics as apiGetAdminTaskAnalytics,
+  getAdminTaskInsights as apiGetAdminTaskInsights,
+  getAdminTaskList as apiGetAdminTaskList,
   getAdminModelControlDetails as apiGetAdminModelControlDetails,
   getAdminUsageByTask as apiGetAdminUsageByTask,
   getAdminModelDetails as apiGetAdminModelDetails,
@@ -49,6 +52,12 @@ import {
   type AdminApiKeyInsightsResponse,
   type AdminApiKeyListItem,
   type AdminApiKeyStatus,
+  type AdminTaskAnalyticsResponse,
+  type AdminTaskStatusFilter,
+  type DailyTaskAnalyticsResponse,
+  type PaginatedTaskListResponse,
+  type TaskListItemResponse,
+  type TaskInsightsResponse,
   type PaginatedUserListResponse,
   type ProviderResponse,
   type RecordUsageBody,
@@ -263,31 +272,10 @@ function normalizeApiKeyAnalyticsResponse(raw: unknown): AdminApiKeyAnalyticsRes
             item.total_revoked ??
             item.api_keys_revoked
         ),
-        active: toNumber(
-          item.active ??
-            item.activeCount ??
-            item.totalActive ??
-            item.apiKeysActive ??
-            item.active_count ??
-            item.total_active ??
-            item.api_keys_active
-        ),
-        inactive: toNumber(
-          item.inactive ??
-            item.inactiveCount ??
-            item.totalInactive ??
-            item.apiKeysInactive ??
-            item.inactive_count ??
-            item.total_inactive ??
-            item.api_keys_inactive
-        ),
-        total: toNumber(item.total ?? item.totalKeys ?? item.count ?? item.total_keys),
       };
     }),
     totalCreated: toNumber(source.totalCreated ?? source.created ?? source.createdCount ?? source.total_created ?? source.created_count),
     totalRevoked: toNumber(source.totalRevoked ?? source.revoked ?? source.revokedCount ?? source.total_revoked ?? source.revoked_count),
-    totalActive: toNumber(source.totalActive ?? source.active ?? source.activeCount ?? source.total_active ?? source.active_count),
-    totalInactive: toNumber(source.totalInactive ?? source.inactive ?? source.inactiveCount ?? source.total_inactive ?? source.inactive_count),
   };
 }
 
@@ -328,10 +316,12 @@ export async function adminFetchApiKeysPage(params: {
   page: number;
   size: number;
   status?: AdminApiKeyStatus;
-}): Promise<{ page: number; size: number; totalElements: number; totalPages: number; isLastPage: boolean; apiKeys: AdminApiKeyListItemView[] }> {
+}): Promise<{ page: number; size: number; totalElements: number; totalPages: number; lastPage: boolean; isLastPage: boolean; apiKeys: AdminApiKeyListItemView[] }> {
   const result = await apiGetAdminApiKeyList(params);
   return {
     ...result,
+    lastPage: result.lastPage ?? result.isLastPage ?? false,
+    isLastPage: result.lastPage ?? result.isLastPage ?? false,
     apiKeys: result.apiKeys.map((key) => ({
       ...key,
       userName: key.userName ?? key.userFullName ?? key.userEmail ?? null,
@@ -453,6 +443,86 @@ export async function adminDeleteProvider(providerId: number): Promise<void> {
 
 export async function adminFetchTasks(): Promise<AdminTask[]> {
   return mock(adminTasks);
+}
+
+export type AdminTaskInsightsView = TaskInsightsResponse;
+
+export type AdminTaskAnalyticsView = {
+  fromDate: string;
+  toDate: string;
+  statusFilter: AdminTaskStatusFilter;
+  dailyAnalytics: DailyTaskAnalyticsResponse[];
+  totalTasks: number;
+  completed: number;
+  failed: number;
+  processing: number;
+  queued: number;
+};
+
+export async function adminFetchTaskInsights(): Promise<AdminTaskInsightsView> {
+  const insights = await apiGetAdminTaskInsights();
+  return {
+    totalTasks: toNumber(insights.totalTasks),
+    completed: toNumber(insights.completed),
+    failed: toNumber(insights.failed),
+    processing: toNumber(insights.processing),
+    queued: toNumber(insights.queued),
+  };
+}
+
+export async function adminFetchTaskAnalytics(params: {
+  from: string;
+  to: string;
+  status: AdminTaskStatusFilter;
+}): Promise<AdminTaskAnalyticsView> {
+  const analytics: AdminTaskAnalyticsResponse = await apiGetAdminTaskAnalytics(params);
+  return {
+    fromDate: analytics.fromDate,
+    toDate: analytics.toDate,
+    statusFilter: analytics.statusFilter,
+    dailyAnalytics: (analytics.dailyAnalytics ?? []).map((item) => ({
+      date: item.date,
+      total: toNumber(item.total),
+      queued: toNumber(item.queued),
+      processing: toNumber(item.processing),
+      completed: toNumber(item.completed),
+      failed: toNumber(item.failed),
+    })),
+    totalTasks: toNumber(analytics.totalTasks),
+    completed: toNumber(analytics.completed),
+    failed: toNumber(analytics.failed),
+    processing: toNumber(analytics.processing),
+    queued: toNumber(analytics.queued),
+  };
+}
+
+export type AdminTaskListPageView = PaginatedTaskListResponse;
+export type AdminTaskListItemView = TaskListItemResponse;
+
+export async function adminFetchTaskList(params: {
+  page: number;
+  size: number;
+  status: AdminTaskStatusFilter;
+}): Promise<AdminTaskListPageView> {
+  const response = await apiGetAdminTaskList(params);
+  return {
+    page: toNumber(response.page),
+    size: toNumber(response.size),
+    totalElements: toNumber(response.totalElements),
+    totalPages: toNumber(response.totalPages),
+    lastPage: Boolean(response.lastPage),
+    tasks: (response.tasks ?? []).map((task) => ({
+      taskId: String(task.taskId ?? ""),
+      status: task.status,
+      apiKeyId: task.apiKeyId == null ? null : toNumber(task.apiKeyId),
+      modelId: task.modelId == null ? null : toNumber(task.modelId),
+      createdAt: String(task.createdAt ?? ""),
+      updatedAt: task.updatedAt ? String(task.updatedAt) : null,
+      completedAt: task.completedAt ? String(task.completedAt) : null,
+      processingTimeMs:
+        task.processingTimeMs == null ? null : toNumber(task.processingTimeMs),
+    })),
+  };
 }
 
 export async function adminFetchUsageRecords(): Promise<AdminUsageRecord[]> {

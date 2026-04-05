@@ -5,9 +5,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 export function maskApiKey(key: string) {
-  const trimmed = key.startsWith("sk_") ? key : `sk_${key}`;
-  const last4 = trimmed.slice(-4);
-  return `sk-••••${last4}`;
+  return key ? "cr_live_••••••••" : "cr_live_••••••••";
 }
 
 export function MaskedKey({
@@ -18,7 +16,7 @@ export function MaskedKey({
   className?: string;
 }) {
   const [copied, setCopied] = useState(false);
-  const display = maskApiKey(fullKey.replace(/^sk_/, "sk_"));
+  const display = maskApiKey(fullKey);
 
   async function copy() {
     await navigator.clipboard.writeText(fullKey);
