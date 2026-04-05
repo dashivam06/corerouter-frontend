@@ -48,6 +48,7 @@ const BILLING_BASE = `${API_BASE_URL}/api/v1/billing`;
 const ADMIN_BILLING_BASE = `${API_BASE_URL}/api/v1/admin/billing`;
 const ADMIN_DOCUMENTATION_BASE = `${API_BASE_URL}/api/v1/admin/documentation`;
 const ADMIN_USERS_BASE = `${API_BASE_URL}/api/v1/admin/users`;
+const SERVICE_TOKENS_BASE = `${API_BASE_URL}/api/v1/service-tokens`;
 const WALLET_TOPUP_BASE = `${API_BASE_URL}/api/wallet/topup`;
 
 // API Key Types
@@ -441,6 +442,25 @@ export type ProviderUpdateBody = {
   providerCountry?: string;
   companyName?: string;
   logo?: string;
+};
+
+export type ServiceTokenResponse = {
+  id: number;
+  tokenId: string;
+  name: string;
+  role: string;
+  active: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+};
+
+export type CreateServiceTokenResponse = ServiceTokenResponse & {
+  rawToken: string;
+};
+
+export type CreateServiceTokenBody = {
+  name: string;
+  role: string;
 };
 
 // Admin API Types
@@ -1618,6 +1638,101 @@ async function requestAdminApiKeys<TRes>(
   );
 }
 
+async function requestServiceTokens<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${SERVICE_TOKENS_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError(
+      "You don't have permission to perform this action.",
+      403,
+      parsed?.errors ?? []
+    );
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 401) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 403) {
+      const parsed = await parseResponse<TRes>(response);
+      throw new ApiRequestError(
+        "You don't have permission to perform this action.",
+        403,
+        parsed?.errors ?? []
+      );
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
 async function requestAdminTasks<TRes>(
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
@@ -2238,6 +2353,62 @@ export async function updateAdminApiKeyStatus(
     "PATCH",
     `/${apiKeyId}/status?status=${encodeURIComponent(status)}`
   );
+}
+
+export async function listServiceTokens(
+  accessToken?: string
+): Promise<ServiceTokenResponse[]> {
+  return requestServiceTokens<ServiceTokenResponse[]>("GET", "", undefined, accessToken);
+}
+
+export async function getServiceToken(
+  tokenId: string,
+  accessToken?: string
+): Promise<ServiceTokenResponse> {
+  return requestServiceTokens<ServiceTokenResponse>(
+    "GET",
+    `/${encodeURIComponent(tokenId)}`,
+    undefined,
+    accessToken
+  );
+}
+
+export async function createServiceToken(
+  body: CreateServiceTokenBody,
+  accessToken?: string
+): Promise<CreateServiceTokenResponse> {
+  return requestServiceTokens<CreateServiceTokenResponse>("POST", "", body, accessToken);
+}
+
+export async function revokeServiceToken(
+  tokenId: string,
+  accessToken?: string
+): Promise<void> {
+  await requestServiceTokens<null>(
+    "PATCH",
+    `/${encodeURIComponent(tokenId)}/revoke`,
+    undefined,
+    accessToken
+  );
+}
+
+export async function activateServiceToken(
+  tokenId: string,
+  accessToken?: string
+): Promise<void> {
+  await requestServiceTokens<null>(
+    "PATCH",
+    `/${encodeURIComponent(tokenId)}/activate`,
+    undefined,
+    accessToken
+  );
+}
+
+export async function deleteServiceToken(
+  tokenId: string,
+  accessToken?: string
+): Promise<void> {
+  await requestServiceTokens<null>("DELETE", `/${encodeURIComponent(tokenId)}`, undefined, accessToken);
 }
 
 export async function createTask(

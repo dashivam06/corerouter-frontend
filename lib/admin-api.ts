@@ -1,7 +1,10 @@
 import {
+  activateServiceToken as apiActivateServiceToken,
+  createServiceToken as apiCreateServiceToken,
   createBillingConfig as apiCreateBillingConfig,
   createDocumentation as apiCreateDocumentation,
   createProvider as apiCreateProvider,
+  deleteServiceToken as apiDeleteServiceToken,
   deleteBillingConfig as apiDeleteBillingConfig,
   deleteDocumentation as apiDeleteDocumentation,
   deleteProvider as apiDeleteProvider,
@@ -17,6 +20,7 @@ import {
   getAdminModelControlDetails as apiGetAdminModelControlDetails,
   getAdminUsageByTask as apiGetAdminUsageByTask,
   getAdminModelDetails as apiGetAdminModelDetails,
+  getServiceToken as apiGetServiceToken,
   getAllModels,
   getBillingConfigByModel as apiGetBillingConfigByModel,
   getBillingConfigById as apiGetBillingConfigById,
@@ -25,6 +29,8 @@ import {
   getAdminUserAnalytics as apiGetAdminUserAnalytics,
   getAdminUserInsights as apiGetAdminUserInsights,
   getAdminUserList as apiGetAdminUserList,
+  listServiceTokens as apiListServiceTokens,
+  revokeServiceToken as apiRevokeServiceToken,
   deactivateApiKey as apiDeactivateApiKey,
   enableApiKey as apiEnableApiKey,
   updateAdminApiKeyStatus as apiUpdateAdminApiKeyStatus,
@@ -40,6 +46,8 @@ import {
   type BillingConfigResponse,
   type BillingConfigUpdateBody,
   type BillingInsightsResponse,
+  type CreateServiceTokenBody,
+  type CreateServiceTokenResponse,
   type ApiKeyRecord,
   type DailyUserAnalyticsResponse,
   type ModelControlDetailsResponse,
@@ -61,6 +69,7 @@ import {
   type PaginatedUserListResponse,
   type ProviderResponse,
   type RecordUsageBody,
+  type ServiceTokenResponse,
   type UserRole,
   type UserStatus,
   type UsageRecordResponse,
@@ -72,7 +81,6 @@ import {
   adminRevenueSevenDaysAgoByHour,
   adminRevenueTodayByHour,
   adminRevenueYesterdayByHour,
-  adminServiceTokens,
   adminTasks,
   adminTransactions,
   adminUsageRecords,
@@ -80,7 +88,6 @@ import {
   adminWorkerInstances,
   type AdminApiKey,
   type AdminModel,
-  type AdminServiceToken,
   type AdminTask,
   type AdminTransaction,
   type AdminUsageRecord,
@@ -537,8 +544,34 @@ export async function adminFetchWorkers(): Promise<AdminWorkerInstance[]> {
   return mock(adminWorkerInstances);
 }
 
-export async function adminFetchServiceTokens(): Promise<AdminServiceToken[]> {
-  return mock(adminServiceTokens);
+export type AdminServiceTokenView = ServiceTokenResponse;
+export type AdminCreateServiceTokenBody = CreateServiceTokenBody;
+export type AdminCreateServiceTokenResult = CreateServiceTokenResponse;
+
+export async function adminFetchServiceTokens(): Promise<AdminServiceTokenView[]> {
+  return apiListServiceTokens();
+}
+
+export async function adminGetServiceToken(tokenId: string): Promise<AdminServiceTokenView> {
+  return apiGetServiceToken(tokenId);
+}
+
+export async function adminCreateServiceToken(
+  body: AdminCreateServiceTokenBody
+): Promise<AdminCreateServiceTokenResult> {
+  return apiCreateServiceToken(body);
+}
+
+export async function adminRevokeServiceToken(tokenId: string): Promise<void> {
+  await apiRevokeServiceToken(tokenId);
+}
+
+export async function adminActivateServiceToken(tokenId: string): Promise<void> {
+  await apiActivateServiceToken(tokenId);
+}
+
+export async function adminDeleteServiceToken(tokenId: string): Promise<void> {
+  await apiDeleteServiceToken(tokenId);
 }
 
 export function adminGetHourlyTaskVolumeToday() {
