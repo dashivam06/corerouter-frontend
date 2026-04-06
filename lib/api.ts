@@ -4,7 +4,6 @@
 
 import type { MockUser } from "@/lib/mock-data";
 import {
-  mockActivity,
   mockApiDocs,
   mockBilling,
   mockCreditsUsedLastMonth,
@@ -37,6 +36,7 @@ const API_BASE_URL = (
 ).replace(/\/$/, "");
 const AUTH_BASE = `${API_BASE_URL}/api/v1/auth`;
 const USER_PROFILE_BASE = `${API_BASE_URL}/api/v1/user/profile`;
+const USER_ACTIVITY_BASE = `${API_BASE_URL}/api/v1/user/activity`;
 const API_KEYS_BASE = `${API_BASE_URL}/api/v1/apikeys`;
 const ADMIN_API_KEYS_BASE = `${API_BASE_URL}/api/v1/admin/apikeys`;
 const TASKS_BASE = `${API_BASE_URL}/api/v1/tasks`;
@@ -242,6 +242,44 @@ export type TransactionResponse = {
   relatedTaskId: string | null;
   completedAt: string | null;
   createdAt: string;
+};
+
+export type ActivityAction =
+  | "LOGIN"
+  | "LOGOUT"
+  | "UPDATE_PROFILE"
+  | "CHANGE_PASSWORD"
+  | "SOFT_DELETE_ACCOUNT"
+  | "CREATE_API_KEY"
+  | "DEACTIVATE_API_KEY"
+  | "DELETE_API_KEY"
+  | "WALLET_TOPUP_SUCCESS"
+  | "ADMIN_PROVIDER_CREATED"
+  | "ADMIN_PROVIDER_UPDATED"
+  | "ADMIN_PROVIDER_STATUS_CHANGED"
+  | "ADMIN_PROVIDER_DELETED"
+  | "ADMIN_MODEL_CREATED"
+  | "ADMIN_MODEL_UPDATED"
+  | "ADMIN_MODEL_STATUS_CHANGED"
+  | "ADMIN_MODEL_DELETED"
+  | "ADMIN_SERVICE_TOKEN_CREATED"
+  | "ADMIN_SERVICE_TOKEN_REVOKED"
+  | "ADMIN_SERVICE_TOKEN_DELETED"
+  | string;
+
+export type UserActivityResponse = {
+  action: ActivityAction;
+  details: string;
+  ipAddress: string;
+  createdAt: string;
+};
+
+export type UserActivityPreviewItem = {
+  id: string;
+  action: ActivityAction;
+  description: string;
+  ipAddress: string;
+  created_at: string;
 };
 
 export type HourlyCountPoint = {
@@ -834,6 +872,90 @@ async function requestUserProfile<TRes>(
       redirectToLogin();
       throw new ApiRequestError("Session expired. Please log in again.", 401);
     }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestUserActivity<TRes>(
+  method: "GET",
+  path: string,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${USER_ACTIVITY_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 401) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+  }
+
+  if (response.status === 403) {
+    const parsedForbidden = await parseResponse<TRes>(response);
+    throw new ApiRequestError(
+      "You don't have permission to perform this action.",
+      403,
+      parsedForbidden?.errors ?? []
+    );
   }
 
   const parsed = await parseResponse<TRes>(response);
@@ -2791,7 +2913,7 @@ export async function getAdminEarnings(params: {
   }
 
   const suffix = query.toString();
-  return requestAdminTransactions<EarningsDataResponse>(
+  return requestAdminBilling<EarningsDataResponse>(
     "GET",
     `/earnings${suffix ? `?${suffix}` : ""}`
   );
@@ -2846,17 +2968,24 @@ export async function getAdminTransactions(params: {
   fromDate?: string;
   toDate?: string;
 }): Promise<TransactionResponse[]> {
-  const page = await getAdminPaginatedTransactions({
-    page: 0,
-    size: 1000,
-    dateFilter: params.filterPeriod ?? "all",
-    type: params.transactionType,
-    status: params.status,
-    fromDate: params.fromDate,
-    toDate: params.toDate,
-  });
+  const query = new URLSearchParams();
+  const hasCustomRange = Boolean(params.fromDate && params.toDate);
 
-  return page.content;
+  if (params.transactionType) query.set("transactionType", params.transactionType);
+  if (params.status) query.set("status", params.status);
+
+  if (hasCustomRange) {
+    query.set("fromDate", String(params.fromDate));
+    query.set("toDate", String(params.toDate));
+  } else {
+    query.set("filterPeriod", params.filterPeriod ?? "all");
+  }
+
+  const suffix = query.toString();
+  return requestAdminBilling<TransactionResponse[]>(
+    "GET",
+    `/transactions${suffix ? `?${suffix}` : ""}`
+  );
 }
 
 export async function listBillingConfigs(): Promise<BillingConfigResponse[]> {
@@ -3034,8 +3163,25 @@ export async function fetchTransactions(): Promise<MockTransaction[]> {
   return mockRequest(mockTransactions);
 }
 
+export async function getUserActivityRecent(params?: {
+  page?: number;
+  size?: number;
+}): Promise<PaginatedResponse<UserActivityResponse>> {
+  const query = new URLSearchParams();
+  query.set("page", String(params?.page ?? 0));
+  query.set("size", String(params?.size ?? 20));
+  return requestUserActivity<PaginatedResponse<UserActivityResponse>>("GET", `/recent?${query.toString()}`);
+}
+
 export async function fetchActivity() {
-  return mockRequest(mockActivity);
+  const page = await getUserActivityRecent({ page: 0, size: 7 });
+  return page.content.map((item, idx): UserActivityPreviewItem => ({
+    id: `${item.action}-${idx}-${item.createdAt}`,
+    action: item.action,
+    description: item.details,
+    ipAddress: item.ipAddress,
+    created_at: item.createdAt,
+  }));
 }
 
 export function getSpendSeries(mode: keyof typeof mockSpendSeries) {

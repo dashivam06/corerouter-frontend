@@ -1,13 +1,21 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  FileText,
+  KeyRound,
+  Lock,
+  RefreshCw,
+  Settings,
+  User,
+  WalletCards,
+} from "lucide-react";
 import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -16,7 +24,12 @@ import {
   YAxis,
 } from "recharts";
 import { adminFetchDashboardOverview } from "@/lib/admin-api";
-import { ApiRequestError } from "@/lib/api";
+import {
+  type ActivityAction,
+  ApiRequestError,
+  getUserActivityRecent,
+  type UserActivityResponse,
+} from "@/lib/api";
 import { chartTheme } from "@/lib/charts";
 import { formatNPR } from "@/lib/formatters";
 
@@ -49,6 +62,65 @@ function formatUtcTime(date: Date): string {
   });
 }
 
+function parseActivityDate(value: string): Date {
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+  return new Date(`${value}Z`);
+}
+
+function formatActivityCreatedAt(value: string): string {
+  const date = parseActivityDate(value);
+  const datePart = date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+  const timePart = date.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  return `${datePart} at ${timePart}`;
+}
+
+function getActivityIcon(action: ActivityAction) {
+  if (action === "LOGIN" || action === "LOGOUT") {
+    return { Icon: Lock, className: "text-blue-600" };
+  }
+  if (action === "UPDATE_PROFILE" || action === "CHANGE_PASSWORD") {
+    return { Icon: User, className: "text-zinc-500" };
+  }
+  if (action === "SOFT_DELETE_ACCOUNT") {
+    return { Icon: AlertTriangle, className: "text-red-600" };
+  }
+  if (action === "CREATE_API_KEY") {
+    return { Icon: KeyRound, className: "text-green-600" };
+  }
+  if (action === "DEACTIVATE_API_KEY" || action === "DELETE_API_KEY") {
+    return { Icon: KeyRound, className: "text-amber-600" };
+  }
+  if (action === "WALLET_TOPUP_SUCCESS") {
+    return { Icon: WalletCards, className: "text-green-600" };
+  }
+  if (action.startsWith("ADMIN_")) {
+    return { Icon: Settings, className: "text-violet-600" };
+  }
+  return { Icon: FileText, className: "text-zinc-500" };
+}
+
+function mapActivityErrorMessage(error: unknown): string {
+  if (error instanceof ApiRequestError) {
+    if (error.status === 403) return "You don't have permission to perform this action.";
+    if (error.status === 429) return "Too many requests. Please slow down.";
+    if (error.status === 503) return "Service temporarily unavailable. Try again later.";
+    if (error.status === 500) return "Failed to load activity. Please try again.";
+    if (error.status === 0) return "Unable to connect. Check your internet connection.";
+    return error.message;
+  }
+  return "Failed to load activity. Please try again.";
+}
+
 function formatCompactNpr(value: number): string {
   if (!Number.isFinite(value)) return "NPR 0";
   const compact = new Intl.NumberFormat("en-US", {
@@ -77,15 +149,23 @@ function SectionError({ message }: { message: string }) {
 }
 
 export default function AdminDashboardPage() {
+  const [showAllActivity, setShowAllActivity] = useState(false);
   const overviewQuery = useQuery({
     queryKey: ["admin-dashboard-overview"],
     queryFn: adminFetchDashboardOverview,
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
   });
+  const activityQuery = useQuery({
+    queryKey: ["admin-activity-preview"],
+    queryFn: () => getUserActivityRecent({ page: 0, size: 10 }),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
 
   const overview = overviewQuery.data;
-  const currentUtcHour = new Date().getUTCHours();
+  const activityItems = activityQuery.data?.content ?? [];
+  const visibleActivityItems = showAllActivity ? activityItems : activityItems.slice(0, 5);
 
   const revenueChartData = useMemo<ChartRevenuePoint[]>(() => {
     if (!overview) return [];
@@ -106,21 +186,23 @@ export default function AdminDashboardPage() {
 
   return (
     <div>
-      <div className="mb-8 flex items-start justify-between gap-4">
+      <div className="mb-5 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-zinc-950">Dashboard</h1>
           <p className="mt-1 text-sm text-zinc-500">Overview of admin revenue and activity (UTC).</p>
-          <p className="mt-1 text-xs text-zinc-400">Last updated: {updatedAtText} UTC</p>
         </div>
-        <button
-          type="button"
-          onClick={() => overviewQuery.refetch()}
-          className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-          aria-label="Refresh dashboard"
-        >
-          <RefreshCw className={`size-4 ${overviewQuery.isFetching ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            type="button"
+            onClick={() => overviewQuery.refetch()}
+            className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+            aria-label="Refresh dashboard"
+          >
+            <RefreshCw className={`size-4 ${overviewQuery.isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <p className="text-xs text-zinc-400">Last updated: {updatedAtText} UTC</p>
+        </div>
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -163,12 +245,11 @@ export default function AdminDashboardPage() {
                   <CartesianGrid {...chartTheme.grid} vertical={false} />
                   <XAxis dataKey="labelUtc" tick={chartTheme.axis.tick} axisLine={{ stroke: "#e4e4e7" }} tickLine={false} />
                   <YAxis tick={chartTheme.axis.tick} axisLine={false} tickLine={false} width={44} />
-                  <Tooltip contentStyle={chartTheme.tooltip.contentStyle} formatter={(value: number) => [value, "tasks"]} />
-                  <Bar dataKey="value">
-                    {overview.taskVolume24h.map((row) => (
-                      <Cell key={row.hour} fill={row.hour === currentUtcHour ? "#09090b" : "#d4d4d8"} />
-                    ))}
-                  </Bar>
+                  <Tooltip
+                    contentStyle={chartTheme.tooltip.contentStyle}
+                    formatter={(value) => [Number(value ?? 0), "tasks"]}
+                  />
+                  <Bar dataKey="value" fill="#09090b" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -205,7 +286,10 @@ export default function AdminDashboardPage() {
                     width={70}
                     tickFormatter={(v) => formatCompactNpr(Number(v))}
                   />
-                  <Tooltip contentStyle={chartTheme.tooltip.contentStyle} formatter={(v: number) => formatNPR(v)} />
+                  <Tooltip
+                    contentStyle={chartTheme.tooltip.contentStyle}
+                    formatter={(v) => formatNPR(Number(v ?? 0))}
+                  />
                   <Line type="monotone" dataKey="today" stroke="#09090b" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="yesterday" stroke="#71717a" strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
                   <Line type="monotone" dataKey="sevenDaysAgo" stroke="#a1a1aa" strokeWidth={1.5} strokeDasharray="2 3" dot={false} />
@@ -223,37 +307,55 @@ export default function AdminDashboardPage() {
       <div>
         <p className="mb-4 text-[15px] font-semibold text-zinc-950">Recent Activity</p>
         <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-          {overview ? (
-            <div className="space-y-3">
-              {overview.recentActivity.length === 0 ? (
-                <p className="text-sm text-zinc-500">No recent activity.</p>
-              ) : (
-                overview.recentActivity.map((item, idx) => {
-                  const taskId = item.split("·")[1]?.trim() ?? "";
-                  const shortTaskId = taskId ? `${taskId.slice(0, 8)}...` : "-";
-                  return (
-                    <div key={`${item}-${idx}`} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-100 px-3 py-2">
-                      <div className="flex items-center gap-2 text-sm text-zinc-700">
-                        <span className="inline-block size-2 rounded-full bg-green-500" />
-                        <span>Task completed · {shortTaskId}</span>
-                      </div>
-                      {taskId ? (
-                        <a href="/admin/tasks" className="text-xs text-zinc-500 underline underline-offset-4 hover:text-zinc-900">
-                          View
-                        </a>
-                      ) : null}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          ) : dashboardError ? (
-            <SectionError message={dashboardError} />
-          ) : (
+          {activityQuery.isError ? (
+            <SectionError message={mapActivityErrorMessage(activityQuery.error)} />
+          ) : activityQuery.isLoading ? (
             <div className="space-y-2">
               <div className="h-10 animate-pulse rounded-xl bg-zinc-100" />
               <div className="h-10 animate-pulse rounded-xl bg-zinc-100" />
               <div className="h-10 animate-pulse rounded-xl bg-zinc-100" />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {activityItems.length === 0 ? (
+                <p className="text-sm text-zinc-500">No recent activity.</p>
+              ) : (
+                visibleActivityItems.map((item: UserActivityResponse, idx: number) => {
+                  const { Icon, className } = getActivityIcon(item.action);
+                  const details = item.details?.trim() || "No details provided.";
+                  return (
+                    <div key={`${item}-${idx}`} className="rounded-xl border border-zinc-100 px-3 py-2">
+                      <div className="flex items-start gap-3">
+                        <Icon className={`mt-0.5 size-4 shrink-0 ${className}`} />
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words text-sm text-zinc-900">{details}</p>
+                        </div>
+                        <div className="shrink-0">
+                          <p className="flex items-center gap-3 whitespace-nowrap text-xs">
+                            <span className="break-all text-zinc-500">
+                              {item.ipAddress && item.ipAddress !== "UNKNOWN"
+                                ? `IP: ${item.ipAddress}`
+                                : "IP: unknown location"}
+                            </span>
+                            <span className="text-zinc-400">{formatActivityCreatedAt(item.createdAt)}</span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              {activityItems.length > 5 ? (
+                <div className="pt-1 text-right">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllActivity((v) => !v)}
+                    className="text-xs text-zinc-500 underline underline-offset-4 hover:text-zinc-900"
+                  >
+                    {showAllActivity ? "Show less" : `Show more (${activityItems.length - 5})`}
+                  </button>
+                </div>
+              ) : null}
             </div>
           )}
         </div>

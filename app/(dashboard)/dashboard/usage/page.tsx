@@ -2,15 +2,28 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { type ModelResponse, fetchModels, fetchTasks } from "@/lib/api";
+import {
+  AlertTriangle,
+  FileText,
+  KeyRound,
+  Lock,
+  Settings,
+  User,
+  WalletCards,
+} from "lucide-react";
+import {
+  ApiRequestError,
+  fetchModels,
+  fetchTasks,
+  getUserActivityRecent,
+  type UserActivityResponse,
+} from "@/lib/api";
 import { mockUsageRecords } from "@/lib/mock-data";
 import { UserHeader } from "@/components/layout/user-header";
 import { StatCard } from "@/components/cards/stat-card";
 import { UsageStackedBar } from "@/components/charts/usage-stacked-bar";
 import { unitTypeColors } from "@/lib/charts";
-import { StatusBadge } from "@/components/shared/status-badge";
-import { formatCost, formatDuration, formatRelative } from "@/lib/formatters";
-import { TaskDetailDrawer } from "@/components/shared/task-detail-drawer";
+import { formatCost } from "@/lib/formatters";
 import {
   Select,
   SelectContent,
@@ -19,28 +32,80 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const statuses = ["All", "QUEUED", "PROCESSING", "COMPLETED", "FAILED"] as const;
+function parseActivityDate(value: string): Date {
+  const direct = new Date(value);
+  if (!Number.isNaN(direct.getTime())) return direct;
+  return new Date(`${value}Z`);
+}
+
+function formatActivityFull(value: string): string {
+  const created = parseActivityDate(value);
+  const datePart = created.toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+  const timePart = created.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  return `${datePart} at ${timePart}`;
+}
+
+function getActivityIcon(action: string) {
+  if (action === "LOGIN" || action === "LOGOUT") {
+    return { Icon: Lock, className: "text-blue-600" };
+  }
+  if (action === "UPDATE_PROFILE" || action === "CHANGE_PASSWORD") {
+    return { Icon: User, className: "text-zinc-500" };
+  }
+  if (action === "SOFT_DELETE_ACCOUNT") {
+    return { Icon: AlertTriangle, className: "text-red-600" };
+  }
+  if (action === "CREATE_API_KEY") {
+    return { Icon: KeyRound, className: "text-green-600" };
+  }
+  if (action === "DEACTIVATE_API_KEY" || action === "DELETE_API_KEY") {
+    return { Icon: KeyRound, className: "text-amber-600" };
+  }
+  if (action === "WALLET_TOPUP_SUCCESS") {
+    return { Icon: WalletCards, className: "text-green-600" };
+  }
+  if (action.startsWith("ADMIN_")) {
+    return { Icon: Settings, className: "text-violet-600" };
+  }
+  return { Icon: FileText, className: "text-zinc-500" };
+}
+
+function mapActivityError(error: unknown): string {
+  if (error instanceof ApiRequestError) {
+    if (error.status === 429) return "Too many requests. Please slow down.";
+    if (error.status === 503) return "Service temporarily unavailable. Try again later.";
+    if (error.status === 500) return "Failed to load activity. Please try again.";
+    if (error.status === 0) return "Unable to connect. Check your internet connection.";
+    return error.message;
+  }
+  return "Failed to load activity. Please try again.";
+}
 
 export default function UsagePage() {
   const { data: tasks } = useQuery({ queryKey: ["tasks"], queryFn: fetchTasks });
   const { data: models } = useQuery({ queryKey: ["models"], queryFn: fetchModels });
 
   const [period, setPeriod] = useState("month");
-  const [statusFilter, setStatusFilter] = useState<string>("All");
-  const [modelFilter, setModelFilter] = useState<string>("all");
-  const [drawerTask, setDrawerTask] = useState<string | null>(null);
+  const [activityPage, setActivityPage] = useState(0);
 
-  const filtered = useMemo(() => {
-    let list = tasks ?? [];
-    if (statusFilter !== "All") {
-      list = list.filter((t) => t.status === statusFilter);
-    }
-    if (modelFilter !== "all") {
-      const mid = Number(modelFilter);
-      list = list.filter((t) => t.model_id === mid);
-    }
-    return list;
-  }, [tasks, statusFilter, modelFilter]);
+  const {
+    data: activityPageData,
+    isLoading: activityLoading,
+    isError: activityErrored,
+    error: activityError,
+  } = useQuery({
+    queryKey: ["user-activity", activityPage],
+    queryFn: () => getUserActivityRecent({ page: activityPage, size: 20 }),
+  });
 
   const unitKeys = useMemo(() => {
     const s = new Set<string>();
@@ -136,99 +201,75 @@ export default function UsagePage() {
         <p className="mb-3 text-[13px] font-medium text-zinc-500 ">
           Activity log
         </p>
-        <div className="mb-3 flex flex-wrap gap-2">
-          {statuses.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setStatusFilter(s)}
-              className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
-                statusFilter === s
-                  ? "bg-zinc-950 text-white"
-                  : "text-zinc-500 hover:bg-zinc-100"
-              }`}
-            >
-              {s === "All" ? s : s.charAt(0) + s.slice(1).toLowerCase()}
-            </button>
-          ))}
-          <Select
-            value={modelFilter}
-            onValueChange={(v) => v != null && setModelFilter(v)}
-          >
-            <SelectTrigger className="ml-auto h-9 w-48 rounded-xl border-zinc-200">
-              <SelectValue placeholder="All models" />
-            </SelectTrigger>
-            <SelectContent className="rounded-xl">
-              <SelectItem value="all">All models</SelectItem>
-              {(models ?? []).map((m) => (
-                <SelectItem key={m.modelId} value={String(m.modelId)}>
-                  {m.fullname}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
         <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
-              <tr>
-                <th className="px-4 py-3">Task</th>
-                <th className="px-4 py-3">Model</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Cost</th>
-                <th className="px-4 py-3 text-right">Time</th>
-                <th className="px-4 py-3 text-right">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-16 text-center text-zinc-400">
-                    No tasks in this period
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((t) => {
-                  const m = models?.find((x) => x.modelId === t.model_id);
-                  return (
-                    <tr
-                      key={t.task_id}
-                      className="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50"
-                      onClick={() => setDrawerTask(t.task_id)}
-                    >
-                      <td className="px-4 py-3 font-mono text-xs text-zinc-500">
-                        {t.task_id.slice(0, 12)}…
-                      </td>
-                      <td className="px-4 py-3 text-[13px] text-zinc-900">
-                        {m?.fullname ?? "—"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={t.status} />
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-sm">
-                        {formatCost(t.total_cost)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm text-zinc-500">
-                        {formatDuration(t.processing_time_ms)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm text-zinc-400">
-                        {formatRelative(new Date(t.created_at))}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+          {activityErrored ? (
+            <div className="px-4 py-10 text-sm text-red-600">{mapActivityError(activityError)}</div>
+          ) : activityLoading ? (
+            <div className="space-y-2 px-4 py-4">
+              <div className="h-12 animate-pulse rounded-lg bg-zinc-100" />
+              <div className="h-12 animate-pulse rounded-lg bg-zinc-100" />
+              <div className="h-12 animate-pulse rounded-lg bg-zinc-100" />
+            </div>
+          ) : (activityPageData?.totalElements ?? 0) === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 px-4 py-14 text-zinc-400">
+              <FileText className="size-6" />
+              <p className="text-sm">No activity recorded yet.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-zinc-100">
+              {(activityPageData?.content ?? []).map((entry: UserActivityResponse, idx: number) => {
+                const { Icon, className } = getActivityIcon(entry.action);
+                const fullTime = formatActivityFull(entry.createdAt);
+                return (
+                  <div
+                    key={`${entry.action}-${entry.createdAt}-${idx}`}
+                    className="px-4 py-3"
+                    title={formatActivityFull(entry.createdAt)}
+                  >
+                    <div className="flex items-start gap-2">
+                      <Icon className={`mt-0.5 size-4 shrink-0 ${className}`} />
+                      <div className="min-w-0">
+                        <p className="break-words text-sm text-zinc-900">{entry.details}</p>
+                        <p className="mt-1 break-all text-xs text-zinc-500">
+                          {entry.ipAddress && entry.ipAddress !== "UNKNOWN"
+                            ? `IP: ${entry.ipAddress}`
+                            : "IP: unknown location"}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-400">Created at: {fullTime}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {activityPageData ? (
+            <div className="flex items-center justify-between border-t border-zinc-100 px-4 py-3 text-sm">
+              <span className="text-zinc-500">Page {activityPageData.number + 1} of {Math.max(activityPageData.totalPages, 1)}</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActivityPage((p) => Math.max(0, p - 1))}
+                  disabled={activityPageData.first}
+                  className="rounded-lg border border-zinc-200 px-3 py-1.5 text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivityPage((p) => p + 1)}
+                  disabled={activityPageData.last}
+                  className="rounded-lg border border-zinc-200 px-3 py-1.5 text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      <TaskDetailDrawer
-        taskId={drawerTask}
-        open={!!drawerTask}
-        onOpenChange={(o) => !o && setDrawerTask(null)}
-      />
     </>
   );
 }

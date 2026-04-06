@@ -4,22 +4,30 @@ import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import Link from "next/link";
 import {
+  AlertTriangle,
   BarChart2,
   Cpu,
+  FileText,
+  KeyRound,
   Key,
+  Lock,
   Plus,
   CreditCard,
+  Settings,
+  User,
+  WalletCards,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/auth-store";
 import {
+  type ActivityAction,
   fetchActivity,
   fetchApiKeys,
   fetchTransactions,
   getDashboardPie,
   getSpendSeries,
 } from "@/lib/api";
-import { formatNPR, formatRelative } from "@/lib/formatters";
+import { formatNPR } from "@/lib/formatters";
 import { StatCard } from "@/components/cards/stat-card";
 import { QuickActionCard } from "@/components/cards/quick-action-card";
 import { SpendLineChart } from "@/components/charts/spend-line-chart";
@@ -27,6 +35,53 @@ import { ModelTypePie, ModelTypePieLegend } from "@/components/charts/model-type
 import { mockTasks } from "@/lib/mock-data";
 
 type SpendRange = "week" | "month" | "6mos" | "year";
+
+function parseActivityDate(value: string): Date {
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) return date;
+  return new Date(`${value}Z`);
+}
+
+function formatActivityCreatedAt(value: string): string {
+  const created = parseActivityDate(value);
+  const datePart = created.toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+  const timePart = created.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  return `${datePart} at ${timePart}`;
+}
+
+function getActivityIcon(action: ActivityAction) {
+  if (action === "LOGIN" || action === "LOGOUT") {
+    return { Icon: Lock, className: "text-blue-600" };
+  }
+  if (action === "UPDATE_PROFILE" || action === "CHANGE_PASSWORD") {
+    return { Icon: User, className: "text-zinc-500" };
+  }
+  if (action === "SOFT_DELETE_ACCOUNT") {
+    return { Icon: AlertTriangle, className: "text-red-600" };
+  }
+  if (action === "CREATE_API_KEY") {
+    return { Icon: KeyRound, className: "text-green-600" };
+  }
+  if (action === "DEACTIVATE_API_KEY" || action === "DELETE_API_KEY") {
+    return { Icon: KeyRound, className: "text-amber-600" };
+  }
+  if (action === "WALLET_TOPUP_SUCCESS") {
+    return { Icon: WalletCards, className: "text-green-600" };
+  }
+  if (action.startsWith("ADMIN_")) {
+    return { Icon: Settings, className: "text-violet-600" };
+  }
+  return { Icon: FileText, className: "text-zinc-500" };
+}
 
 export default function DashboardHomePage() {
   const user = useAuthStore((s) => s.user);
@@ -159,16 +214,27 @@ export default function DashboardHomePage() {
             {(activity ?? []).slice(0, 7).map((a, i, arr) => (
               <div
                 key={a.id}
-                className={`flex items-center justify-between py-3 ${
+                className={`py-3 ${
                   i < arr.length - 1 ? "border-b border-zinc-100" : ""
                 }`}
               >
-                <span className="text-[13px] text-zinc-900">
-                  {a.description}
-                </span>
-                <span className="text-[11px] text-zinc-400">
-                  {formatRelative(new Date(a.created_at))}
-                </span>
+                {(() => {
+                  const { Icon, className } = getActivityIcon(a.action);
+                  return (
+                    <div className="flex items-start gap-2">
+                      <Icon className={`mt-0.5 size-4 shrink-0 ${className}`} />
+                      <div className="min-w-0">
+                        <p className="break-words text-[13px] text-zinc-900">{a.description}</p>
+                        <p className="mt-1 break-all text-[11px] text-zinc-500">
+                          {a.ipAddress && a.ipAddress !== "UNKNOWN"
+                            ? `IP: ${a.ipAddress}`
+                            : "IP: unknown location"}
+                        </p>
+                        <p className="mt-1 text-[11px] text-zinc-400">Created at: {formatActivityCreatedAt(a.created_at)}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             ))}
           </div>
