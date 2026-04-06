@@ -1,12 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   Clipboard,
   CreditCard,
-  Loader2,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -20,7 +19,7 @@ import {
 import { AdminHeader } from "@/components/admin/admin-header";
 import { AdminStatCard } from "@/components/admin/stat-card";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { adminFetchTasks, adminFetchTransactions, adminFetchUsers } from "@/lib/admin-api";
+import { adminFetchBillingInsights, adminFetchTasks, adminFetchTransactions, adminFetchUsersPage } from "@/lib/admin-api";
 import { formatNPR, formatRelative } from "@/lib/formatters";
 import type { AdminTransaction } from "@/lib/admin-mock-data";
 import { AdminDetailDrawer } from "@/components/admin/detail-drawer";
@@ -43,29 +42,57 @@ const CHART_RANGE_LABELS: Record<ChartRange, string> = {
   "1y": "last 1 year",
 };
 
+const TABLE_PAGE_SIZE = 5;
+
+function roundToTwo(value: number): number {
+  return Number(value.toFixed(2));
+}
+
 export default function AdminTransactionsPage() {
-  const { data: txs } = useQuery({
-    queryKey: ["admin-transactions"],
-    queryFn: adminFetchTransactions,
-  });
-  const { data: tasks } = useQuery({
-    queryKey: ["admin-tasks"],
-    queryFn: adminFetchTasks,
-  });
-  const { data: users } = useQuery({
-    queryKey: ["admin-users"],
-    queryFn: adminFetchUsers,
-  });
-
-  const list = txs ?? [];
-  const taskList = tasks ?? [];
-  const userList = users ?? [];
-
   const [drawerId, setDrawerId] = useState<number | null>(null);
   const [type, setType] = useState<"ALL" | "WALLET" | "CARD" | "WALLET_TOPUP">("ALL");
   const [dateFilter, setDateFilter] = useState<"TODAY" | "ALL">("TODAY");
   const [q, setQ] = useState("");
   const [chartRange, setChartRange] = useState<ChartRange>("7d");
+  const [tablePage, setTablePage] = useState(1);
+
+  const { data: allTxs } = useQuery({
+    queryKey: ["admin-transactions"],
+    queryFn: () => adminFetchTransactions({ filterPeriod: "all" }),
+  });
+  const { data: txs } = useQuery({
+    queryKey: ["admin-transactions-table", dateFilter, type],
+    queryFn: () =>
+      adminFetchTransactions({
+        filterPeriod: dateFilter === "TODAY" ? "today" : "all",
+        transactionType: type === "ALL" ? undefined : type,
+      }),
+  });
+  const { data: billingInsights } = useQuery({
+    queryKey: ["admin-billing-insights"],
+    queryFn: adminFetchBillingInsights,
+  });
+  const { data: tasks } = useQuery({
+    queryKey: ["admin-tasks"],
+    queryFn: adminFetchTasks,
+  });
+  const { data: usersPage } = useQuery({
+    queryKey: ["admin-users-page", 0, 1000],
+    queryFn: () => adminFetchUsersPage({ page: 0, size: 1000 }),
+  });
+
+  const list = txs ?? [];
+  const baseList = allTxs ?? list;
+  const taskList = tasks ?? [];
+  const userList = useMemo(
+    () =>
+      (usersPage?.users ?? []).map((u) => ({
+        user_id: u.userId,
+        full_name: u.fullName,
+        email: u.email,
+      })),
+    [usersPage]
+  );
 
   const todayStart = useMemo(() => startOfDay(new Date()), []);
   const yesterdayStart = useMemo(() => {
@@ -81,14 +108,6 @@ export default function AdminTransactionsPage() {
 
   const filtered = useMemo(() => {
     let out = list;
-    if (dateFilter === "TODAY") {
-      out = out.filter((t) => {
-        if (t.status !== "COMPLETED") return false;
-        const d = new Date(t.completed_at ?? t.created_at);
-        return d.getTime() >= todayStart.getTime();
-      });
-    }
-    if (type !== "ALL") out = out.filter((t) => t.type === type);
     const s = q.trim().toLowerCase();
     if (s) {
       out = out.filter((t) => {
@@ -101,7 +120,27 @@ export default function AdminTransactionsPage() {
       });
     }
     return out;
-  }, [list, type, dateFilter, q, todayStart, userList]);
+  }, [list, q, userList]);
+
+  const totalTablePages = useMemo(
+    () => Math.max(1, Math.ceil(filtered.length / TABLE_PAGE_SIZE)),
+    [filtered.length]
+  );
+
+  const pagedTransactions = useMemo(() => {
+    const start = (tablePage - 1) * TABLE_PAGE_SIZE;
+    return filtered.slice(start, start + TABLE_PAGE_SIZE);
+  }, [filtered, tablePage]);
+
+  useEffect(() => {
+    setTablePage(1);
+  }, [dateFilter, type, q]);
+
+  useEffect(() => {
+    if (tablePage > totalTablePages) {
+      setTablePage(totalTablePages);
+    }
+  }, [tablePage, totalTablePages]);
 
   const selected = useMemo(
     () => list.find((t) => t.transaction_id === drawerId) ?? null,
@@ -109,7 +148,7 @@ export default function AdminTransactionsPage() {
   );
 
   const stats = useMemo(() => {
-    const completed = list.filter((t) => t.status === "COMPLETED");
+    const completed = baseList.filter((t) => t.status === "COMPLETED");
     const transactionsToday = completed.filter((t) => {
       const d = new Date(t.completed_at ?? t.created_at);
       return d.getTime() >= todayStart.getTime();
@@ -121,6 +160,10 @@ export default function AdminTransactionsPage() {
     });
 
     const topUpToday = transactionsToday
+      .filter((t) => t.type === "WALLET_TOPUP")
+      .reduce((a, t) => a + (t.amount ?? 0), 0);
+
+    const topUpAllTime = completed
       .filter((t) => t.type === "WALLET_TOPUP")
       .reduce((a, t) => a + (t.amount ?? 0), 0);
 
@@ -142,19 +185,20 @@ export default function AdminTransactionsPage() {
       : 0;
 
     return {
-      total: list.length,
+      total: baseList.length,
       volume: completed.reduce((a, t) => a + (t.amount ?? 0), 0),
       thisMonthVolume: thisMonthCompleted.reduce((a, t) => a + (t.amount ?? 0), 0),
       topUpToday,
+      topUpAllTime,
       transactionsVolumeToday: todayTotal,
       transactionsVolumeYesterday,
       deltaPercent,
       consumptionToday,
     };
-  }, [list, monthStart, taskList, todayStart, yesterdayStart]);
+  }, [baseList, monthStart, taskList, todayStart, yesterdayStart]);
 
   const chartData = useMemo(() => {
-    const completed = list.filter((t) => t.status === "COMPLETED");
+    const completed = baseList.filter((t) => t.status === "COMPLETED");
     const now = new Date();
 
     if (chartRange === "7d" || chartRange === "14d" || chartRange === "1m") {
@@ -180,7 +224,7 @@ export default function AdminTransactionsPage() {
             days <= 14
               ? d0.toLocaleDateString(undefined, { weekday: "short" })
               : d0.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-          value: amount,
+          value: roundToTwo(amount),
         };
       });
     }
@@ -201,10 +245,10 @@ export default function AdminTransactionsPage() {
 
       return {
         label: m0.toLocaleDateString(undefined, { month: "short" }),
-        value: amount,
+        value: roundToTwo(amount),
       };
     });
-  }, [list, chartRange]);
+  }, [baseList, chartRange]);
 
   return (
     <div>
@@ -215,16 +259,16 @@ export default function AdminTransactionsPage() {
 
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-2xl bg-zinc-950 p-5 text-white">
-          <p className="text-xs text-zinc-400">Total balance</p>
+          <p className="text-xs text-zinc-400">Total user balance</p>
           <p className="mt-1 text-[28px] font-semibold">
-            {formatNPR(stats.volume)}
+            {formatNPR(billingInsights?.totalBalance ?? stats.volume)}
           </p>
           <p className={`mt-2 text-xs ${stats.deltaPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
             {stats.deltaPercent >= 0 ? '↑' : '↓'} {Math.abs(stats.deltaPercent).toFixed(1)}% from yesterday
           </p>
         </div>
-        <AdminStatCard label="This month's volume (रू)" value={formatNPR(stats.thisMonthVolume)} />
-        <AdminStatCard label="Top up amount (today)" value={formatNPR(stats.topUpToday)} />
+        <AdminStatCard label="This month's volume" value={formatNPR(billingInsights?.thisMonthVolume ?? stats.thisMonthVolume)} />
+        <AdminStatCard label="Today's top-ups" value={formatNPR(billingInsights?.todayTopUpAmount ?? stats.topUpToday)} />
       </div>
 
       <div className="mb-5 rounded-2xl border border-zinc-200 bg-white p-5">
@@ -295,7 +339,7 @@ export default function AdminTransactionsPage() {
           <div className="h-5 border-l border-zinc-200"></div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-zinc-400 uppercase">Type</span>
-            {(["WALLET", "CARD", "WALLET_TOPUP"] as const).map((t) => (
+            {(["ALL", "WALLET", "CARD", "WALLET_TOPUP"] as const).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -304,7 +348,7 @@ export default function AdminTransactionsPage() {
                   type === t ? "bg-zinc-950 text-white" : "text-zinc-500 hover:bg-zinc-100"
                 }`}
               >
-                {t === "WALLET_TOPUP" ? "Wallet Topup" : t.charAt(0) + t.slice(1).toLowerCase()}
+                {t === "WALLET_TOPUP" ? "Wallet Topup" : t === "ALL" ? "All" : t.charAt(0) + t.slice(1).toLowerCase()}
               </button>
             ))}
           </div>
@@ -328,7 +372,7 @@ export default function AdminTransactionsPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((t) => {
+            {pagedTransactions.map((t) => {
               const u = userList.find((x) => x.user_id === t.user_id);
               return (
                 <tr
@@ -382,6 +426,36 @@ export default function AdminTransactionsPage() {
             ) : null}
           </tbody>
         </table>
+
+        {filtered.length > 0 ? (
+          <div className="flex items-center justify-between border-t border-zinc-100 px-4 py-3 text-sm">
+            <p className="text-zinc-500">
+              Showing {(tablePage - 1) * TABLE_PAGE_SIZE + 1}
+              -{Math.min(tablePage * TABLE_PAGE_SIZE, filtered.length)} of {filtered.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setTablePage((p) => Math.max(1, p - 1))}
+                disabled={tablePage === 1}
+                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <span className="text-zinc-600">
+                Page {tablePage} of {totalTablePages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setTablePage((p) => Math.min(totalTablePages, p + 1))}
+                disabled={tablePage === totalTablePages}
+                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <AdminDetailDrawer

@@ -46,6 +46,8 @@ const ADMIN_MODELS_BASE = `${API_BASE_URL}/api/v1/admin/models`;
 const PROVIDERS_BASE = `${API_BASE_URL}/api/v1/providers`;
 const BILLING_BASE = `${API_BASE_URL}/api/v1/billing`;
 const ADMIN_BILLING_BASE = `${API_BASE_URL}/api/v1/admin/billing`;
+const ADMIN_DASHBOARD_BASE = `${API_BASE_URL}/api/v1/admin/dashboard`;
+const ADMIN_TRANSACTIONS_BASE = `${API_BASE_URL}/api/v1/admin/transactions`;
 const ADMIN_DOCUMENTATION_BASE = `${API_BASE_URL}/api/v1/admin/documentation`;
 const ADMIN_USERS_BASE = `${API_BASE_URL}/api/v1/admin/users`;
 const SERVICE_TOKENS_BASE = `${API_BASE_URL}/api/v1/service-tokens`;
@@ -215,6 +217,63 @@ export type BillingInsightsResponse = {
   thisMonthVolume: number;
   todayTopUpAmount: number;
 };
+
+export type EarningsFilterPeriod = "today" | "all";
+
+export type EarningsDataResponse = {
+  earningsByDate: Record<string, string>;
+  totalEarnings: string;
+  totalTransactionCount: number;
+  filterPeriod: EarningsFilterPeriod;
+  filterType: string;
+};
+
+export type TransactionType = "WALLET_TOPUP" | "WALLET" | "CARD";
+export type TransactionStatus = "PENDING" | "COMPLETED" | "FAILED";
+
+export type TransactionResponse = {
+  transactionId: number;
+  userId: number;
+  userName: string;
+  amount: number;
+  type: TransactionType;
+  status: TransactionStatus;
+  esewaTransactionId: string;
+  relatedTaskId: string | null;
+  completedAt: string | null;
+  createdAt: string;
+};
+
+export type HourlyCountPoint = {
+  hour: number;
+  labelUtc: string;
+  value: number;
+};
+
+export type HourlyAmountPoint = {
+  hour: number;
+  labelUtc: string;
+  value: number;
+};
+
+export type RevenueTrendResponse = {
+  today: HourlyAmountPoint[];
+  yesterday: HourlyAmountPoint[];
+  sevenDaysAgo: HourlyAmountPoint[];
+};
+
+export type AdminDashboardOverviewResponse = {
+  totalEarnings: number;
+  totalEarningsChangeFromPastMonthPercent: number;
+  todayEarning: number;
+  tasksProcessedToday: number;
+  activeUsersToday: number;
+  taskVolume24h: HourlyCountPoint[];
+  revenueTrend: RevenueTrendResponse;
+  recentActivity: string[];
+};
+
+export type TransactionDateFilter = "today" | "all";
 
 export type UsageUnitType = "TOKENS" | "IMAGES" | "SECONDS" | "REQUESTS" | string;
 
@@ -1357,6 +1416,180 @@ async function requestAdminBilling<TRes>(
     if (response.status === 403) {
       const parsed = await parseResponse<TRes>(response);
       throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestAdminDashboard<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${ADMIN_DASHBOARD_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 403) {
+      const parsed = await parseResponse<TRes>(response);
+      throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+    }
+
+    if (response.status === 401) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestAdminTransactions<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${ADMIN_TRANSACTIONS_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 403) {
+    const parsed = await parseResponse<TRes>(response);
+    throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 403) {
+      const parsed = await parseResponse<TRes>(response);
+      throw new ApiRequestError("You don't have permission to perform this action.", 403, parsed?.errors ?? []);
+    }
+
+    if (response.status === 401) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
     }
   }
 
@@ -2536,6 +2769,94 @@ export async function getAdminTaskList(params: {
 
 export async function getAdminBillingInsights(): Promise<BillingInsightsResponse> {
   return requestAdminBilling<BillingInsightsResponse>("GET", "/insights");
+}
+
+export async function getAdminDashboardOverview(): Promise<AdminDashboardOverviewResponse> {
+  return requestAdminDashboard<AdminDashboardOverviewResponse>("GET", "/overview");
+}
+
+export async function getAdminEarnings(params: {
+  filterPeriod?: EarningsFilterPeriod;
+  fromDate?: string;
+  toDate?: string;
+}): Promise<EarningsDataResponse> {
+  const query = new URLSearchParams();
+  const hasCustomRange = Boolean(params.fromDate && params.toDate);
+
+  if (hasCustomRange) {
+    query.set("fromDate", String(params.fromDate));
+    query.set("toDate", String(params.toDate));
+  } else {
+    query.set("filterPeriod", params.filterPeriod ?? "all");
+  }
+
+  const suffix = query.toString();
+  return requestAdminTransactions<EarningsDataResponse>(
+    "GET",
+    `/earnings${suffix ? `?${suffix}` : ""}`
+  );
+}
+
+export async function getAdminPaginatedTransactions(params: {
+  page?: number;
+  size?: number;
+  dateFilter?: TransactionDateFilter;
+  type?: TransactionType;
+  status?: TransactionStatus;
+  search?: string;
+  fromDate?: string;
+  toDate?: string;
+}): Promise<PaginatedResponse<TransactionResponse>> {
+  const page = params.page ?? 0;
+  const size = params.size ?? 20;
+
+  if (page < 0 || size <= 0) {
+    throw new ApiRequestError("Page must be >= 0 and size must be > 0", 400);
+  }
+
+  const query = new URLSearchParams();
+  query.set("page", String(page));
+  query.set("size", String(size));
+
+  const hasCustomRange = Boolean(params.fromDate && params.toDate);
+
+  if (hasCustomRange) {
+    query.set("fromDate", String(params.fromDate));
+    query.set("toDate", String(params.toDate));
+  } else {
+    query.set("dateFilter", params.dateFilter ?? "all");
+  }
+
+  if (params.type) query.set("type", params.type);
+  if (params.status) query.set("status", params.status);
+
+  const trimmedSearch = params.search?.trim();
+  if (trimmedSearch) query.set("search", trimmedSearch);
+
+  return requestAdminTransactions<PaginatedResponse<TransactionResponse>>(
+    "GET",
+    `/?${query.toString()}`
+  );
+}
+
+export async function getAdminTransactions(params: {
+  transactionType?: TransactionType;
+  status?: TransactionStatus;
+  filterPeriod?: EarningsFilterPeriod;
+  fromDate?: string;
+  toDate?: string;
+}): Promise<TransactionResponse[]> {
+  const page = await getAdminPaginatedTransactions({
+    page: 0,
+    size: 1000,
+    dateFilter: params.filterPeriod ?? "all",
+    type: params.transactionType,
+    status: params.status,
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+  });
+
+  return page.content;
 }
 
 export async function listBillingConfigs(): Promise<BillingConfigResponse[]> {

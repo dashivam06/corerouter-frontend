@@ -1,496 +1,263 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import {
-  CreditCard,
-  Cpu,
-  Key,
-  RefreshCw,
-  Server,
-} from "lucide-react";
-import {
-  ResponsiveContainer,
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Line,
   LineChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  Tooltip,
-  Cell,
 } from "recharts";
-import {
-  adminFetchApiKeys,
-  adminFetchModels,
-  adminFetchTasks,
-  adminFetchUsers,
-  adminFetchWorkers,
-  adminGetHourlyTaskVolumeToday,
-  adminGetRevenueSevenDaysAgoByHour,
-  adminGetRevenueTodayByHour,
-  adminGetRevenueYesterdayByHour,
-} from "@/lib/admin-api";
-import { formatNPR, formatRelative } from "@/lib/formatters";
+import { adminFetchDashboardOverview } from "@/lib/admin-api";
+import { ApiRequestError } from "@/lib/api";
 import { chartTheme } from "@/lib/charts";
-import type { AdminTask } from "@/lib/admin-mock-data";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { formatNPR } from "@/lib/formatters";
 
-function HourlyTaskVolumeChart({
-  data,
-}: {
-  data: { hour: number; value: number }[];
-}) {
-  const currentHour = new Date().getHours();
-  return (
-    <div className="h-[200px] w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-          <CartesianGrid {...chartTheme.grid} vertical={false} />
-          <XAxis
-            dataKey="hour"
-            ticks={[0, 4, 8, 12, 16, 20]}
-            tick={chartTheme.axis.tick}
-            axisLine={{ stroke: "#e4e4e7" }}
-            tickLine={false}
-          />
-          <YAxis
-            tick={chartTheme.axis.tick}
-            axisLine={false}
-            tickLine={false}
-            width={44}
-          />
-          <Tooltip
-            contentStyle={chartTheme.tooltip.contentStyle}
-            formatter={(v: any) => [v, "tasks"]}
-          />
-          <Bar dataKey="value">
-            {data.map((d) => {
-              const fill =
-                d.hour === currentHour
-                  ? "#09090b"
-                  : d.hour < currentHour
-                    ? "#e4e4e7"
-                    : "#f4f4f5";
-              return <Cell key={d.hour} fill={fill} />;
-            })}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
+type ChartRevenuePoint = {
+  labelUtc: string;
+  today: number;
+  yesterday: number;
+  sevenDaysAgo: number;
+};
+
+function mapErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiRequestError) {
+    if (error.status === 403) return "You don't have permission to perform this action.";
+    if (error.status === 429) return "Too many requests. Please slow down.";
+    if (error.status === 503) return "Service temporarily unavailable. Try again later.";
+    if (error.status === 500) return "Something went wrong. Please try again.";
+    if (error.status === 0) return "Unable to connect. Check your internet connection.";
+    return error.message || fallback;
+  }
+  return fallback;
 }
 
-function RevenueLinesChart({
-  today,
-  yesterday,
-  sevenDaysAgo,
-}: {
-  today: number[];
-  yesterday: number[];
-  sevenDaysAgo: number[];
-}) {
-  const data = today.map((_, hour) => ({
-    hour,
-    today: today[hour] ?? 0,
-    yesterday: yesterday[hour] ?? 0,
-    seven: sevenDaysAgo[hour] ?? 0,
-  }));
-
-  return (
-    <div>
-      <div className="mb-3 flex gap-4">
-        <span className="flex items-center gap-2 text-xs text-zinc-500">
-          <span className="h-2.5 w-2.5 rounded-sm bg-[#09090b]" />
-          Today
-        </span>
-        <span className="flex items-center gap-2 text-xs text-zinc-500">
-          <span className="h-2.5 w-2.5 rounded-sm bg-[#a1a1aa]" />
-          Yesterday
-        </span>
-        <span className="flex items-center gap-2 text-xs text-zinc-500">
-          <span className="h-2.5 w-2.5 rounded-sm bg-[#d4d4d8]" />
-          7 days ago
-        </span>
-      </div>
-      <div className="h-[200px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart
-            data={data}
-            margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
-          >
-            <CartesianGrid {...chartTheme.grid} vertical={false} />
-            <XAxis
-              dataKey="hour"
-              ticks={[0, 4, 8, 12, 16, 20]}
-              tick={chartTheme.axis.tick}
-              axisLine={{ stroke: "#e4e4e7" }}
-              tickLine={false}
-            />
-            <YAxis
-              tick={chartTheme.axis.tick}
-              axisLine={false}
-              tickLine={false}
-              width={60}
-              tickFormatter={(v) => `रू ${Number(v).toFixed(0)}`}
-            />
-            <Tooltip contentStyle={chartTheme.tooltip.contentStyle} />
-            <Line
-              type="monotone"
-              dataKey="today"
-              stroke="#09090b"
-              strokeWidth={2}
-              dot={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="yesterday"
-              stroke="#a1a1aa"
-              strokeWidth={1.5}
-              dot={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="seven"
-              stroke="#d4d4d8"
-              strokeWidth={1.5}
-              strokeDasharray="4 4"
-              dot={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
+function formatUtcTime(date: Date): string {
+  return date.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  });
 }
 
-function activityIcon(task: AdminTask) {
-  if (task.status === "FAILED") return Server;
-  if (task.status === "PROCESSING") return Cpu;
-  if (task.status === "COMPLETED") return Key;
-  return CreditCard;
+function formatCompactNpr(value: number): string {
+  if (!Number.isFinite(value)) return "NPR 0";
+  const compact = new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+  return `NPR ${compact}`;
+}
+
+function ChangeBadge({ percent }: { percent: number }) {
+  if (percent > 0) {
+    return <p className="mt-2 text-xs text-green-400">▲ {percent.toFixed(1)}% vs last month</p>;
+  }
+  if (percent < 0) {
+    return <p className="mt-2 text-xs text-red-400">▼ {Math.abs(percent).toFixed(1)}% vs last month</p>;
+  }
+  return <p className="mt-2 text-xs text-zinc-400">Stable</p>;
+}
+
+function SectionError({ message }: { message: string }) {
+  return (
+    <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+      {message}
+    </div>
+  );
 }
 
 export default function AdminDashboardPage() {
-  const qc = useQueryClient();
-  const [volumeRange, setVolumeRange] = useState("24h");
-  const [revenueRange, setRevenueRange] = useState("24h");
-  const { data: users } = useQuery({
-    queryKey: ["admin-users"],
-    queryFn: adminFetchUsers,
-  });
-  const { data: apiKeys } = useQuery({
-    queryKey: ["admin-api-keys"],
-    queryFn: adminFetchApiKeys,
-  });
-  const { data: models } = useQuery({
-    queryKey: ["admin-models"],
-    queryFn: adminFetchModels,
-  });
-  const { data: tasks } = useQuery({
-    queryKey: ["admin-tasks"],
-    queryFn: adminFetchTasks,
-  });
-  const { data: workers } = useQuery({
-    queryKey: ["admin-workers"],
-    queryFn: adminFetchWorkers,
+  const overviewQuery = useQuery({
+    queryKey: ["admin-dashboard-overview"],
+    queryFn: adminFetchDashboardOverview,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   });
 
-  const todayStart = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
+  const overview = overviewQuery.data;
+  const currentUtcHour = new Date().getUTCHours();
 
-  const now = new Date();
+  const revenueChartData = useMemo<ChartRevenuePoint[]>(() => {
+    if (!overview) return [];
+    return overview.revenueTrend.today.map((point, idx) => ({
+      labelUtc: point.labelUtc,
+      today: point.value,
+      yesterday: overview.revenueTrend.yesterday[idx]?.value ?? 0,
+      sevenDaysAgo: overview.revenueTrend.sevenDaysAgo[idx]?.value ?? 0,
+    }));
+  }, [overview]);
 
-  const apiKeyStats = useMemo(() => {
-    const list = apiKeys ?? [];
-    const active = list.filter((k) => k.status === "ACTIVE").length;
-    const dormant = list.filter((k) => {
-      if (k.status !== "ACTIVE") return false;
-      if (!k.last_used_at) return true;
-      return (
-        now.getTime() - new Date(k.last_used_at).getTime() >
-        30 * 86400_000
-      );
-    }).length;
-    return { active, dormant };
-  }, [apiKeys, now]);
-
-  const modelStats = useMemo(() => {
-    const list = models ?? [];
-    const active = list.filter((m) => m.status === "ACTIVE").length;
-    const missingBilling = Math.min(
-      2,
-      list.filter((m) => m.status === "ACTIVE").length
-    );
-    return { active, missingBilling };
-  }, [models]);
-
-  const workerStats = useMemo(() => {
-    const list = workers ?? [];
-    const online = list.filter((w) => w.status === "ONLINE").length;
-    const downCount = list.filter((w) => w.status !== "ONLINE").length;
-    return { online, downCount };
-  }, [workers]);
-
-  const healthSnapshot = useMemo(() => {
-    const base = {
-      database: { latency: "19ms", status: "UP" as const },
-      redis: { latency: "106ms", status: "UP" as const },
-      vllm: { latency: "167ms", status: "UP" as const },
-    };
-
-    const workerServices = (workers ?? []).reduce<Record<string, { latency: string; status: "UP" | "DEGRADED" | "DOWN" }>>((acc, w) => {
-      const key = w.service_name.replace(/-worker$/i, "");
-      const status = w.status === "ONLINE" ? "UP" : w.status === "STALE" ? "DEGRADED" : "DOWN";
-      const latency = status === "UP" ? "42ms" : status === "DEGRADED" ? "188ms" : "--";
-      acc[key] = { latency, status };
-      return acc;
-    }, {});
-
-    return {
-      data: {
-        ...base,
-        ...workerServices,
-      },
-    };
-  }, [workers]);
-
-  const tasksStats = useMemo(() => {
-    const list = tasks ?? [];
-    const completedToday = list.filter(
-      (t) => t.status === "COMPLETED" && new Date(t.created_at) >= todayStart
-    ).length;
-    const failedLast24h = list.filter(
-      (t) =>
-        t.status === "FAILED" &&
-        now.getTime() - new Date(t.created_at).getTime() <= 86400_000
-    );
-    const queued = list.filter((t) => t.status === "QUEUED").length;
-    return { completedToday, failedLast24h, queued };
-  }, [tasks, todayStart, now]);
-
-  const hourlyTaskVolume = adminGetHourlyTaskVolumeToday();
-  const chartData = hourlyTaskVolume.map((v, hour) => ({ hour, value: v }));
-
-  const revenueTodayByHour = adminGetRevenueTodayByHour();
-  const revenueYesterdayByHour = adminGetRevenueYesterdayByHour();
-  const revenueSevenByHour = adminGetRevenueSevenDaysAgoByHour();
-  const earningsToday = revenueTodayByHour.reduce((a, b) => a + b, 0);
-
-  const earningsStats = useMemo(() => {
-    const list = tasks ?? [];
-    const nowDate = new Date();
-    const monthStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1);
-    const pastMonthStart = new Date(nowDate.getFullYear(), nowDate.getMonth() - 1, 1);
-
-    const total = list.reduce((a, t) => a + (t.total_cost ?? 0), 0);
-    const thisMonth = list
-      .filter((t) => new Date(t.created_at).getTime() >= monthStart.getTime())
-      .reduce((a, t) => a + (t.total_cost ?? 0), 0);
-    const pastMonth = list
-      .filter((t) => {
-        const createdTs = new Date(t.created_at).getTime();
-        return createdTs >= pastMonthStart.getTime() && createdTs < monthStart.getTime();
-      })
-      .reduce((a, t) => a + (t.total_cost ?? 0), 0);
-
-    const deltaFromPastMonth =
-      pastMonth > 0 ? ((thisMonth - pastMonth) / pastMonth) * 100 : 0;
-
-    return { total, deltaFromPastMonth };
-  }, [tasks]);
-
-  const activity = useMemo(() => {
-    const list = tasks ?? [];
-    const derived = list.slice(0, 8).map((t, idx) => {
-      const Icon = activityIcon(t);
-      let desc = "";
-      if (t.status === "FAILED") desc = `Task failed · ${t.task_id}`;
-      else if (t.status === "PROCESSING") desc = `Task processing · ${t.task_id}`;
-      else desc = `Task completed · ${t.task_id}`;
-      return {
-        id: t.task_id + ":" + idx,
-        href: "/admin/tasks",
-        icon: Icon,
-        description: desc,
-        timestampLabel: formatRelative(new Date(t.created_at)),
-      };
-    });
-    return derived;
-  }, [tasks]);
+  const updatedAtText = formatUtcTime(
+    overviewQuery.dataUpdatedAt ? new Date(overviewQuery.dataUpdatedAt) : new Date()
+  );
+  const dashboardError = overviewQuery.isError
+    ? mapErrorMessage(overviewQuery.error, "Failed to load dashboard. Please try again.")
+    : null;
 
   return (
     <div>
       <div className="mb-8 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-zinc-950">Dashboard</h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            Overview of today&apos;s activity and revenue performance.
-          </p>
+          <p className="mt-1 text-sm text-zinc-500">Overview of admin revenue and activity (UTC).</p>
+          <p className="mt-1 text-xs text-zinc-400">Last updated: {updatedAtText} UTC</p>
         </div>
         <button
           type="button"
+          onClick={() => overviewQuery.refetch()}
           className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-          onClick={() => {
-            qc.invalidateQueries({ queryKey: ["admin-users"] });
-            qc.invalidateQueries({ queryKey: ["admin-api-keys"] });
-            qc.invalidateQueries({ queryKey: ["admin-models"] });
-            qc.invalidateQueries({ queryKey: ["admin-tasks"] });
-            qc.invalidateQueries({ queryKey: ["admin-workers"] });
-          }}
           aria-label="Refresh dashboard"
         >
-          <RefreshCw className="size-4" />
+          <RefreshCw className={`size-4 ${overviewQuery.isFetching ? "animate-spin" : ""}`} />
           Refresh
         </button>
       </div>
 
-      {/* Stats cards */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl bg-zinc-950 p-5 text-white">
-          <p className="text-xs text-zinc-400">Total earnings (रू)</p>
-          <p className="mt-1 text-[28px] font-semibold">{formatNPR(earningsStats.total)}</p>
-          <p className={`mt-2 text-xs ${earningsStats.deltaFromPastMonth >= 0 ? "text-green-400" : "text-red-400"}`}>
-            {earningsStats.deltaFromPastMonth >= 0 ? "↑" : "↓"} {Math.abs(earningsStats.deltaFromPastMonth).toFixed(1)}% from past month
-          </p>
+          <p className="text-xs text-zinc-400">Total Earnings (All Time)</p>
+          <p className="mt-1 text-[28px] font-semibold">{formatNPR(overview?.totalEarnings ?? 0)}</p>
+          {overview ? <ChangeBadge percent={overview.totalEarningsChangeFromPastMonthPercent} /> : null}
+          {!overview && dashboardError ? <p className="mt-2 text-xs text-red-300">{dashboardError}</p> : null}
         </div>
+
         <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <p className="mb-1 text-xs text-zinc-500">Today&apos;s earning (रू)</p>
-          <p className="text-2xl font-semibold text-zinc-950">
-            {formatNPR(earningsToday)}
-          </p>
+          <p className="mb-1 text-xs text-zinc-500">Today&apos;s Revenue</p>
+          <p className="text-2xl font-semibold text-zinc-950">{formatNPR(overview?.todayEarning ?? 0)}</p>
+          <p className="mt-1 text-xs text-zinc-400">UTC date</p>
+          {!overview && dashboardError ? <p className="mt-2 text-xs text-red-500">{dashboardError}</p> : null}
         </div>
+
         <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <p className="mb-1 text-xs text-zinc-500">Task processed today</p>
-          <p className="text-2xl font-semibold text-zinc-950">
-            {tasksStats.completedToday}
-          </p>
+          <p className="mb-1 text-xs text-zinc-500">Tasks Processed Today</p>
+          <p className="text-2xl font-semibold text-zinc-950">{overview?.tasksProcessedToday ?? 0}</p>
+          <p className="mt-1 text-xs text-zinc-400">Completed tasks (UTC)</p>
+          {!overview && dashboardError ? <p className="mt-2 text-xs text-red-500">{dashboardError}</p> : null}
         </div>
+
         <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <p className="mb-1 text-xs text-zinc-500">Active users today</p>
-          <p className="text-2xl font-semibold text-zinc-950">
-            {(users ?? []).length}
-          </p>
+          <p className="mb-1 text-xs text-zinc-500">Active Users Today</p>
+          <p className="text-2xl font-semibold text-zinc-950">{overview?.activeUsersToday ?? 0}</p>
+          <p className="mt-1 text-xs text-zinc-400">Distinct users with tasks (UTC)</p>
+          {!overview && dashboardError ? <p className="mt-2 text-xs text-red-500">{dashboardError}</p> : null}
         </div>
       </div>
 
-      {/* Two charts */}
       <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-zinc-950">
-              Task volume
-            </p>
-            <Select value={volumeRange} onValueChange={(v) => v != null && setVolumeRange(v)}>
-              <SelectTrigger className="h-8 w-[130px] rounded-lg border-zinc-200 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl">
-                <SelectItem value="24h">Last 24 hours</SelectItem>
-                <SelectItem value="7d">Last 7 days</SelectItem>
-                <SelectItem value="30d">Last 30 days</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <HourlyTaskVolumeChart data={chartData} />
-        </div>
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-zinc-950">
-              Revenue trend
-            </p>
-            <Select value={revenueRange} onValueChange={(v) => v != null && setRevenueRange(v)}>
-              <SelectTrigger className="h-8 w-[130px] rounded-lg border-zinc-200 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl">
-                <SelectItem value="24h">Last 24 hours</SelectItem>
-                <SelectItem value="7d">Last 7 days</SelectItem>
-                <SelectItem value="30d">Last 30 days</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <RevenueLinesChart
-            today={revenueTodayByHour}
-            yesterday={revenueYesterdayByHour}
-            sevenDaysAgo={revenueSevenByHour}
-          />
-        </div>
-      </div>
-
-      {/* Activity feed */}
-      <div className="mb-6">
-        <div className="mb-4 flex items-center justify-between">
-          <p className="text-[15px] font-semibold text-zinc-950">System health</p>
-          <div className="text-xs text-zinc-400">
-            {workerStats.online} up · {workerStats.downCount} issue
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Object.entries(healthSnapshot.data).map(([name, health]) => (
-            <div key={name} className="rounded-2xl border border-zinc-200 bg-white p-4">
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-medium capitalize text-zinc-900">{name}</p>
-                <span
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                    health.status === "UP"
-                      ? "bg-emerald-50 text-emerald-700"
-                      : health.status === "DEGRADED"
-                        ? "bg-amber-50 text-amber-700"
-                        : "bg-red-50 text-red-700"
-                  }`}
-                >
-                  {health.status}
-                </span>
-              </div>
-              <div className="mt-3 text-xs text-zinc-500">Latency</div>
-              <div className="mt-1 text-lg font-semibold text-zinc-900">{health.latency}</div>
+          <p className="mb-3 text-sm font-semibold text-zinc-950">Task Volume - Last 24 Hours (UTC)</p>
+          {overview ? (
+            <div className="h-[220px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={overview.taskVolume24h} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid {...chartTheme.grid} vertical={false} />
+                  <XAxis dataKey="labelUtc" tick={chartTheme.axis.tick} axisLine={{ stroke: "#e4e4e7" }} tickLine={false} />
+                  <YAxis tick={chartTheme.axis.tick} axisLine={false} tickLine={false} width={44} />
+                  <Tooltip contentStyle={chartTheme.tooltip.contentStyle} formatter={(value: number) => [value, "tasks"]} />
+                  <Bar dataKey="value">
+                    {overview.taskVolume24h.map((row) => (
+                      <Cell key={row.hour} fill={row.hour === currentUtcHour ? "#09090b" : "#d4d4d8"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-          ))}
+          ) : dashboardError ? (
+            <SectionError message={dashboardError} />
+          ) : (
+            <div className="h-[220px] animate-pulse rounded-xl bg-zinc-100" />
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+          <p className="mb-3 text-sm font-semibold text-zinc-950">Hourly Revenue Trend (UTC)</p>
+          <div className="mb-3 flex gap-4">
+            <span className="flex items-center gap-2 text-xs text-zinc-500">
+              <span className="h-2.5 w-2.5 rounded-sm bg-zinc-900" />Today
+            </span>
+            <span className="flex items-center gap-2 text-xs text-zinc-500">
+              <span className="h-2.5 w-2.5 rounded-sm bg-zinc-500" />Yesterday
+            </span>
+            <span className="flex items-center gap-2 text-xs text-zinc-500">
+              <span className="h-2.5 w-2.5 rounded-sm bg-zinc-300" />7 Days Ago
+            </span>
+          </div>
+          {overview ? (
+            <div className="h-[220px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={revenueChartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid {...chartTheme.grid} vertical={false} />
+                  <XAxis dataKey="labelUtc" tick={chartTheme.axis.tick} axisLine={{ stroke: "#e4e4e7" }} tickLine={false} />
+                  <YAxis
+                    tick={chartTheme.axis.tick}
+                    axisLine={false}
+                    tickLine={false}
+                    width={70}
+                    tickFormatter={(v) => formatCompactNpr(Number(v))}
+                  />
+                  <Tooltip contentStyle={chartTheme.tooltip.contentStyle} formatter={(v: number) => formatNPR(v)} />
+                  <Line type="monotone" dataKey="today" stroke="#09090b" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="yesterday" stroke="#71717a" strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
+                  <Line type="monotone" dataKey="sevenDaysAgo" stroke="#a1a1aa" strokeWidth={1.5} strokeDasharray="2 3" dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : dashboardError ? (
+            <SectionError message={dashboardError} />
+          ) : (
+            <div className="h-[220px] animate-pulse rounded-xl bg-zinc-100" />
+          )}
         </div>
       </div>
 
       <div>
-        <p className="mb-4 text-[15px] font-semibold text-zinc-950">
-          Recent activity
-        </p>
-        <div className="rounded-2xl border border-zinc-200 bg-white">
-          <div className="max-h-[480px] overflow-y-auto">
-            {(activity as any[]).map((a, idx) => {
-              const Icon = a.icon as any;
-              const isLast = idx === (activity as any[]).length - 1;
-              return (
-                <a
-                  key={a.id}
-                  href={a.href}
-                  className={`flex items-start gap-3 px-4 py-3 hover:bg-zinc-50 no-underline ${
-                    isLast ? "" : "border-b border-zinc-100"
-                  }`}
-                >
-                  <Icon className="mt-0.5 size-4 flex-shrink-0 text-zinc-500" />
-                  <div className="min-w-0 flex-1 text-sm text-zinc-700">
-                    {a.description}
-                  </div>
-                  <div className="shrink-0 text-xs text-zinc-400">
-                    {a.timestampLabel}
-                  </div>
-                </a>
-              );
-            })}
-          </div>
+        <p className="mb-4 text-[15px] font-semibold text-zinc-950">Recent Activity</p>
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+          {overview ? (
+            <div className="space-y-3">
+              {overview.recentActivity.length === 0 ? (
+                <p className="text-sm text-zinc-500">No recent activity.</p>
+              ) : (
+                overview.recentActivity.map((item, idx) => {
+                  const taskId = item.split("·")[1]?.trim() ?? "";
+                  const shortTaskId = taskId ? `${taskId.slice(0, 8)}...` : "-";
+                  return (
+                    <div key={`${item}-${idx}`} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-100 px-3 py-2">
+                      <div className="flex items-center gap-2 text-sm text-zinc-700">
+                        <span className="inline-block size-2 rounded-full bg-green-500" />
+                        <span>Task completed · {shortTaskId}</span>
+                      </div>
+                      {taskId ? (
+                        <a href="/admin/tasks" className="text-xs text-zinc-500 underline underline-offset-4 hover:text-zinc-900">
+                          View
+                        </a>
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ) : dashboardError ? (
+            <SectionError message={dashboardError} />
+          ) : (
+            <div className="space-y-2">
+              <div className="h-10 animate-pulse rounded-xl bg-zinc-100" />
+              <div className="h-10 animate-pulse rounded-xl bg-zinc-100" />
+              <div className="h-10 animate-pulse rounded-xl bg-zinc-100" />
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
-

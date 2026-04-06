@@ -17,9 +17,13 @@ import {
   getAdminTaskAnalytics as apiGetAdminTaskAnalytics,
   getAdminTaskInsights as apiGetAdminTaskInsights,
   getAdminTaskList as apiGetAdminTaskList,
+  getAdminDashboardOverview as apiGetAdminDashboardOverview,
   getAdminModelControlDetails as apiGetAdminModelControlDetails,
+  getAdminEarnings as apiGetAdminEarnings,
+  getAdminPaginatedTransactions as apiGetAdminPaginatedTransactions,
   getAdminUsageByTask as apiGetAdminUsageByTask,
   getAdminModelDetails as apiGetAdminModelDetails,
+  getAdminTransactions as apiGetAdminTransactions,
   getServiceToken as apiGetServiceToken,
   getAllModels,
   getBillingConfigByModel as apiGetBillingConfigByModel,
@@ -45,7 +49,10 @@ import {
   type BillingConfigCreateBody,
   type BillingConfigResponse,
   type BillingConfigUpdateBody,
+  type AdminDashboardOverviewResponse,
   type BillingInsightsResponse,
+  type EarningsDataResponse,
+  type EarningsFilterPeriod,
   type CreateServiceTokenBody,
   type CreateServiceTokenResponse,
   type ApiKeyRecord,
@@ -66,10 +73,15 @@ import {
   type PaginatedTaskListResponse,
   type TaskListItemResponse,
   type TaskInsightsResponse,
+  type PaginatedResponse,
   type PaginatedUserListResponse,
   type ProviderResponse,
   type RecordUsageBody,
   type ServiceTokenResponse,
+  type TransactionResponse,
+  type TransactionStatus,
+  type TransactionDateFilter,
+  type TransactionType,
   type UserRole,
   type UserStatus,
   type UsageRecordResponse,
@@ -82,7 +94,6 @@ import {
   adminRevenueTodayByHour,
   adminRevenueYesterdayByHour,
   adminTasks,
-  adminTransactions,
   adminUsageRecords,
   adminUsers,
   adminWorkerInstances,
@@ -115,6 +126,20 @@ function toAdminModel(model: ModelResponse): AdminModel {
     status: model.status === "ACTIVE" ? "ACTIVE" : model.status === "INACTIVE" ? "INACTIVE" : model.status === "DEPRECATED" ? "DEPRECATED" : "ARCHIVED",
     type: model.type === "LLM" || model.type === "OCR" ? model.type : "OTHER",
     username: model.username,
+  };
+}
+
+function toAdminTransactionView(tx: TransactionResponse): AdminTransaction {
+  return {
+    transaction_id: tx.transactionId,
+    amount: tx.amount,
+    completed_at: tx.completedAt,
+    created_at: tx.createdAt,
+    esewa_transaction_id: tx.esewaTransactionId,
+    product_code: null,
+    status: tx.status,
+    type: tx.type,
+    user_id: tx.userId,
   };
 }
 
@@ -536,8 +561,51 @@ export async function adminFetchUsageRecords(): Promise<AdminUsageRecord[]> {
   return mock(adminUsageRecords);
 }
 
-export async function adminFetchTransactions(): Promise<AdminTransaction[]> {
-  return mock(adminTransactions);
+export type AdminBillingFilterPeriod = EarningsFilterPeriod;
+export type AdminBillingTransactionType = TransactionType;
+export type AdminBillingTransactionStatus = TransactionStatus;
+export type AdminTransactionDateFilter = TransactionDateFilter;
+export type AdminEarningsData = EarningsDataResponse;
+export type AdminBillingTransaction = AdminTransaction;
+export type AdminDashboardOverview = AdminDashboardOverviewResponse;
+
+export type AdminPaginatedTransactions = PaginatedResponse<TransactionResponse>;
+export type AdminTransactionListItem = TransactionResponse;
+
+export async function adminFetchDashboardOverview(): Promise<AdminDashboardOverview> {
+  return apiGetAdminDashboardOverview();
+}
+
+export async function adminFetchEarnings(params: {
+  filterPeriod?: AdminBillingFilterPeriod;
+  fromDate?: string;
+  toDate?: string;
+}): Promise<AdminEarningsData> {
+  return apiGetAdminEarnings(params);
+}
+
+export async function adminFetchTransactions(params?: {
+  transactionType?: AdminBillingTransactionType;
+  status?: AdminBillingTransactionStatus;
+  filterPeriod?: AdminBillingFilterPeriod;
+  fromDate?: string;
+  toDate?: string;
+}): Promise<AdminBillingTransaction[]> {
+  const list = await apiGetAdminTransactions(params ?? {});
+  return list.map(toAdminTransactionView);
+}
+
+export async function adminFetchTransactionsPage(params: {
+  page?: number;
+  size?: number;
+  dateFilter?: AdminTransactionDateFilter;
+  type?: AdminBillingTransactionType;
+  status?: AdminBillingTransactionStatus;
+  search?: string;
+  fromDate?: string;
+  toDate?: string;
+}): Promise<AdminPaginatedTransactions> {
+  return apiGetAdminPaginatedTransactions(params);
 }
 
 export async function adminFetchWorkers(): Promise<AdminWorkerInstance[]> {

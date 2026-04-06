@@ -2,6 +2,12 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+Set the backend base URL:
+
+```bash
+export NEXT_PUBLIC_API_BASE_URL="https://api.corerouter.me"
+```
+
 First, run the development server:
 
 ```bash
