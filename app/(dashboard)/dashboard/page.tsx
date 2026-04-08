@@ -210,33 +210,32 @@ export default function DashboardHomePage() {
           <p className="mb-3 text-[13px] font-medium text-zinc-500">
             Recent activity
           </p>
-          <div className="rounded-2xl border border-zinc-200 bg-white px-4">
-            {(activity ?? []).slice(0, 7).map((a, i, arr) => (
-              <div
-                key={a.id}
-                className={`py-3 ${
-                  i < arr.length - 1 ? "border-b border-zinc-100" : ""
-                }`}
-              >
-                {(() => {
-                  const { Icon, className } = getActivityIcon(a.action);
-                  return (
-                    <div className="flex items-start gap-2">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="space-y-3">
+              {(activity ?? []).slice(0, 4).map((a) => {
+                const { Icon, className } = getActivityIcon(a.action);
+                return (
+                  <div key={a.id} className="rounded-xl border border-zinc-100 px-3 py-2">
+                    <div className="flex items-start gap-3">
                       <Icon className={`mt-0.5 size-4 shrink-0 ${className}`} />
-                      <div className="min-w-0">
-                        <p className="break-words text-[13px] text-zinc-900">{a.description}</p>
-                        <p className="mt-1 break-all text-[11px] text-zinc-500">
-                          {a.ipAddress && a.ipAddress !== "UNKNOWN"
-                            ? `IP: ${a.ipAddress}`
-                            : "IP: unknown location"}
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words text-sm text-zinc-900">{a.description}</p>
+                      </div>
+                      <div className="shrink-0">
+                        <p className="flex items-center gap-3 whitespace-nowrap text-xs">
+                          <span className="break-all text-zinc-500">
+                            {a.ipAddress && a.ipAddress !== "UNKNOWN"
+                              ? `IP: ${a.ipAddress}`
+                              : "IP: unknown"}
+                          </span>
+                          <span className="text-zinc-400">{formatActivityCreatedAt(a.created_at)}</span>
                         </p>
-                        <p className="mt-1 text-[11px] text-zinc-400">Created at: {formatActivityCreatedAt(a.created_at)}</p>
                       </div>
                     </div>
-                  );
-                })()}
-              </div>
-            ))}
+                  </div>
+                );
+              })}
+            </div>
           </div>
           <Link
             href="/dashboard/usage"

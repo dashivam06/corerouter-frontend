@@ -216,26 +216,30 @@ export default function UsagePage() {
               <p className="text-sm">No activity recorded yet.</p>
             </div>
           ) : (
-            <div className="divide-y divide-zinc-100">
-              {(activityPageData?.content ?? []).map((entry: UserActivityResponse, idx: number) => {
+            <div className="space-y-3 px-4 py-4">
+              {(activityPageData?.content ?? []).slice(0, 15).map((entry: UserActivityResponse, idx: number) => {
                 const { Icon, className } = getActivityIcon(entry.action);
                 const fullTime = formatActivityFull(entry.createdAt);
                 return (
                   <div
                     key={`${entry.action}-${entry.createdAt}-${idx}`}
-                    className="px-4 py-3"
+                    className="rounded-xl border border-zinc-100 px-3 py-2"
                     title={formatActivityFull(entry.createdAt)}
                   >
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-3">
                       <Icon className={`mt-0.5 size-4 shrink-0 ${className}`} />
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="break-words text-sm text-zinc-900">{entry.details}</p>
-                        <p className="mt-1 break-all text-xs text-zinc-500">
-                          {entry.ipAddress && entry.ipAddress !== "UNKNOWN"
-                            ? `IP: ${entry.ipAddress}`
-                            : "IP: unknown location"}
+                      </div>
+                      <div className="shrink-0">
+                        <p className="flex items-center gap-3 whitespace-nowrap text-xs">
+                          <span className="break-all text-zinc-500">
+                            {entry.ipAddress && entry.ipAddress !== "UNKNOWN"
+                              ? `IP: ${entry.ipAddress}`
+                              : "IP: unknown"}
+                          </span>
+                          <span className="text-zinc-400">{fullTime}</span>
                         </p>
-                        <p className="mt-1 text-xs text-zinc-400">Created at: {fullTime}</p>
                       </div>
                     </div>
                   </div>
