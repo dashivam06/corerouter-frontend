@@ -20,13 +20,14 @@ import { clearAllAuthClientTokens, getRefreshTokenCookie } from "@/lib/auth";
 
 const navItems = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
+  { label: "Insights", href: "/admin/insights", icon: BarChart2 },
   { label: "Users", href: "/admin/users", icon: Users },
   { label: "API Keys", href: "/admin/api-keys", icon: Key },
   { label: "Billing", href: "/admin/billing", icon: CreditCard },
   { label: "Models", href: "/admin/models", icon: Cpu },
   { label: "Tasks", href: "/admin/tasks", icon: BarChart2 },
   { label: "Transactions", href: "/admin/transactions", icon: CreditCard },
-  { label: "Workers", href: "/admin/workers", icon: Server },
+  { label: "Service", href: "/admin/workers", icon: Server },
   { label: "Settings", href: "/admin/settings", icon: Settings },
 ];
 

@@ -18,6 +18,21 @@ import {
   getAdminTaskInsights as apiGetAdminTaskInsights,
   getAdminTaskList as apiGetAdminTaskList,
   getAdminDashboardOverview as apiGetAdminDashboardOverview,
+  getAdminTechnicalHealth as apiGetAdminTechnicalHealth,
+  getAdminTechnicalOverview as apiGetAdminTechnicalOverview,
+  getAdminTechnicalLogs as apiGetAdminTechnicalLogs,
+  getAdminTechnicalErrors as apiGetAdminTechnicalErrors,
+  getAdminTechnicalWarnings as apiGetAdminTechnicalWarnings,
+  getAdminTechnicalFailedJobs as apiGetAdminTechnicalFailedJobs,
+  getAdminTechnicalAlerts as apiGetAdminTechnicalAlerts,
+  getAdminTechnicalTotalRequests as apiGetAdminTechnicalTotalRequests,
+  getAdminTechnicalFailedRequests as apiGetAdminTechnicalFailedRequests,
+  getAdminTechnicalErrorRate as apiGetAdminTechnicalErrorRate,
+  getAdminTechnicalAverageResponseTime as apiGetAdminTechnicalAverageResponseTime,
+  getAdminTechnicalP95ResponseTime as apiGetAdminTechnicalP95ResponseTime,
+  getAdminTechnicalRequestsOverTime as apiGetAdminTechnicalRequestsOverTime,
+  getAdminTechnicalFailedRequestsOverTime as apiGetAdminTechnicalFailedRequestsOverTime,
+  getAdminTechnicalTopEndpoints as apiGetAdminTechnicalTopEndpoints,
   getAdminModelControlDetails as apiGetAdminModelControlDetails,
   getAdminEarnings as apiGetAdminEarnings,
   getAdminPaginatedTransactions as apiGetAdminPaginatedTransactions,
@@ -50,6 +65,16 @@ import {
   type BillingConfigResponse,
   type BillingConfigUpdateBody,
   type AdminDashboardOverviewResponse,
+  type TechnicalHealthResponse,
+  type TechnicalOverviewResponse,
+  type CursorPagedResponse,
+  type TechnicalLogItem,
+  type TechnicalErrorItem,
+  type TechnicalWarningItem,
+  type TechnicalFailedJobItem,
+  type TechnicalAlertItem,
+  type KqlResponse,
+  type TechnicalRange,
   type BillingInsightsResponse,
   type EarningsDataResponse,
   type EarningsFilterPeriod,
@@ -568,12 +593,148 @@ export type AdminTransactionDateFilter = TransactionDateFilter;
 export type AdminEarningsData = EarningsDataResponse;
 export type AdminBillingTransaction = AdminTransaction;
 export type AdminDashboardOverview = AdminDashboardOverviewResponse;
+export type AdminTechnicalHealth = TechnicalHealthResponse;
+export type AdminTechnicalOverview = TechnicalOverviewResponse;
+export type AdminTechnicalLogsPage = CursorPagedResponse<TechnicalLogItem>;
+export type AdminTechnicalErrorsPage = CursorPagedResponse<TechnicalErrorItem>;
+export type AdminTechnicalWarningsPage = CursorPagedResponse<TechnicalWarningItem>;
+export type AdminTechnicalFailedJobsPage = CursorPagedResponse<TechnicalFailedJobItem>;
+export type AdminTechnicalAlertsPage = CursorPagedResponse<TechnicalAlertItem>;
+export type AdminKqlResponse = KqlResponse;
+export type AdminTechnicalRange = TechnicalRange;
 
 export type AdminPaginatedTransactions = PaginatedResponse<TransactionResponse>;
 export type AdminTransactionListItem = TransactionResponse;
 
 export async function adminFetchDashboardOverview(): Promise<AdminDashboardOverview> {
   return apiGetAdminDashboardOverview();
+}
+
+export async function adminFetchTechnicalHealth(): Promise<AdminTechnicalHealth> {
+  return apiGetAdminTechnicalHealth();
+}
+
+export async function adminFetchTechnicalOverview(params?: {
+  from?: string;
+  to?: string;
+}): Promise<AdminTechnicalOverview> {
+  return apiGetAdminTechnicalOverview(params);
+}
+
+export async function adminFetchTechnicalLogs(params?: {
+  from?: string;
+  to?: string;
+  severity?: "ALL" | "INFO" | "WARN" | "ERROR";
+  pageSize?: number;
+  cursorTimestamp?: string;
+  cursorItemId?: string;
+}): Promise<AdminTechnicalLogsPage> {
+  return apiGetAdminTechnicalLogs(params);
+}
+
+export async function adminFetchTechnicalErrors(params?: {
+  from?: string;
+  to?: string;
+  pageSize?: number;
+  cursorTimestamp?: string;
+  cursorItemId?: string;
+}): Promise<AdminTechnicalErrorsPage> {
+  return apiGetAdminTechnicalErrors(params);
+}
+
+export async function adminFetchTechnicalWarnings(params?: {
+  from?: string;
+  to?: string;
+  pageSize?: number;
+  cursorTimestamp?: string;
+  cursorItemId?: string;
+}): Promise<AdminTechnicalWarningsPage> {
+  return apiGetAdminTechnicalWarnings(params);
+}
+
+export async function adminFetchTechnicalFailedJobs(params?: {
+  from?: string;
+  to?: string;
+  pageSize?: number;
+  cursorTimestamp?: string;
+  cursorItemId?: string;
+}): Promise<AdminTechnicalFailedJobsPage> {
+  return apiGetAdminTechnicalFailedJobs(params);
+}
+
+export async function adminFetchTechnicalAlerts(params?: {
+  from?: string;
+  to?: string;
+  severity?: "ALL" | "WARN" | "ERROR";
+  pageSize?: number;
+  cursorTimestamp?: string;
+  cursorItemId?: string;
+}): Promise<AdminTechnicalAlertsPage> {
+  return apiGetAdminTechnicalAlerts(params);
+}
+
+export async function adminFetchTechnicalTotalRequests(params?: {
+  range?: AdminTechnicalRange;
+  from?: string;
+  to?: string;
+}): Promise<AdminKqlResponse> {
+  return apiGetAdminTechnicalTotalRequests(params);
+}
+
+export async function adminFetchTechnicalFailedRequests(params?: {
+  range?: AdminTechnicalRange;
+  from?: string;
+  to?: string;
+}): Promise<AdminKqlResponse> {
+  return apiGetAdminTechnicalFailedRequests(params);
+}
+
+export async function adminFetchTechnicalErrorRate(params?: {
+  range?: AdminTechnicalRange;
+  from?: string;
+  to?: string;
+}): Promise<AdminKqlResponse> {
+  return apiGetAdminTechnicalErrorRate(params);
+}
+
+export async function adminFetchTechnicalAverageResponseTime(params?: {
+  range?: AdminTechnicalRange;
+  from?: string;
+  to?: string;
+}): Promise<AdminKqlResponse> {
+  return apiGetAdminTechnicalAverageResponseTime(params);
+}
+
+export async function adminFetchTechnicalP95ResponseTime(params?: {
+  range?: AdminTechnicalRange;
+  from?: string;
+  to?: string;
+}): Promise<AdminKqlResponse> {
+  return apiGetAdminTechnicalP95ResponseTime(params);
+}
+
+export async function adminFetchTechnicalRequestsOverTime(params?: {
+  range?: AdminTechnicalRange;
+  from?: string;
+  to?: string;
+}): Promise<AdminKqlResponse> {
+  return apiGetAdminTechnicalRequestsOverTime(params);
+}
+
+export async function adminFetchTechnicalFailedRequestsOverTime(params?: {
+  range?: AdminTechnicalRange;
+  from?: string;
+  to?: string;
+}): Promise<AdminKqlResponse> {
+  return apiGetAdminTechnicalFailedRequestsOverTime(params);
+}
+
+export async function adminFetchTechnicalTopEndpoints(params?: {
+  range?: AdminTechnicalRange;
+  from?: string;
+  to?: string;
+}): Promise<AdminKqlResponse> {
+  return apiGetAdminTechnicalTopEndpoints(params);
 }
 
 export async function adminFetchEarnings(params: {

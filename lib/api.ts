@@ -48,6 +48,7 @@ const BILLING_BASE = `${API_BASE_URL}/api/v1/billing`;
 const ADMIN_BILLING_BASE = `${API_BASE_URL}/api/v1/admin/billing`;
 const ADMIN_DASHBOARD_BASE = `${API_BASE_URL}/api/v1/admin/dashboard`;
 const ADMIN_TRANSACTIONS_BASE = `${API_BASE_URL}/api/v1/admin/transactions`;
+const ADMIN_TECHNICAL_BASE = `${API_BASE_URL}/api/v1/admin/technical`;
 const ADMIN_DOCUMENTATION_BASE = `${API_BASE_URL}/api/v1/admin/documentation`;
 const ADMIN_USERS_BASE = `${API_BASE_URL}/api/v1/admin/users`;
 const SERVICE_TOKENS_BASE = `${API_BASE_URL}/api/v1/service-tokens`;
@@ -309,6 +310,122 @@ export type AdminDashboardOverviewResponse = {
   taskVolume24h: HourlyCountPoint[];
   revenueTrend: RevenueTrendResponse;
   recentActivity: string[];
+};
+
+export type TechnicalRange = "1d" | "3d" | "7d" | "1m" | "3m" | "6m";
+
+export type KqlResponse = {
+  tables?: Array<{
+    columns: Array<{ name: string; type?: string }>;
+    rows: unknown[][];
+  }>;
+};
+
+export type ComponentResult = {
+  status: "UP" | "DOWN";
+  latency?: string;
+  reason?: string;
+};
+
+export type WorkerRecentDownInstance = {
+  instanceId: string;
+  serviceName: string;
+  downAt: string;
+  reason: string;
+};
+
+export type WorkerGroupInstance = {
+  instanceId: string;
+  startedAt: string;
+  lastHeartbeat: string;
+  status: "UP" | "DOWN";
+};
+
+export type WorkerResult = {
+  status: "UP" | "DOWN";
+  totalRunning?: number;
+  running?: number;
+  reason?: string;
+  notice?: string;
+  recentDownCount?: number;
+  recentDownInstances?: WorkerRecentDownInstance[];
+  groups?: Record<string, WorkerGroupInstance[]>;
+};
+
+export type TechnicalHealthResponse = {
+  redis: ComponentResult;
+  vllm: ComponentResult;
+  database: ComponentResult;
+  worker: WorkerResult;
+};
+
+export type CursorPagedResponse<T> = {
+  from: string;
+  to: string;
+  pageSize: number;
+  countInPage: number;
+  totalCount: number;
+  totalPages: number;
+  items: T[];
+  nextCursorTimestamp: string | null;
+  nextCursorItemId: string | null;
+};
+
+export type TechnicalLogSeverity = "INFO" | "WARN" | "ERROR" | "UNKNOWN";
+
+export type TechnicalLogItem = {
+  timestamp: string;
+  service: string;
+  instanceId: string;
+  message: string;
+  itemId: string;
+  severity: TechnicalLogSeverity;
+};
+
+export type TechnicalErrorItem = {
+  timestamp: string;
+  service: string;
+  instanceId: string;
+  message: string;
+  detail: string;
+  severity: "ERROR";
+  itemId: string;
+};
+
+export type TechnicalWarningItem = {
+  timestamp: string;
+  service: string;
+  instanceId: string;
+  message: string;
+  severity: "WARN";
+  itemId: string;
+};
+
+export type TechnicalAlertItem = {
+  timestamp: string;
+  service: string;
+  alertType: string;
+  severity: "WARN" | "ERROR";
+  value: string;
+  itemId: string;
+};
+
+export type TechnicalFailedJobItem = {
+  timestamp: string;
+  jobId: string;
+  jobType: string;
+  reason: string;
+  instanceId: string;
+  retryCount: number;
+  itemId: string;
+};
+
+export type TechnicalOverviewResponse = {
+  requestStats: KqlResponse;
+  failedJobs: CursorPagedResponse<TechnicalFailedJobItem>;
+  topEndpoints: KqlResponse;
+  trafficByHour: KqlResponse;
+  alerts: KqlResponse;
 };
 
 export type TransactionDateFilter = "today" | "all";
@@ -1734,6 +1851,100 @@ async function requestAdminTransactions<TRes>(
   );
 }
 
+async function requestAdminTechnical<TRes>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+  accessToken?: string
+): Promise<TRes> {
+  const resolvedAccessToken = accessToken || getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${ADMIN_TECHNICAL_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    if (response.status === 401) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+
+  if (response.status === 403) {
+    const message = parsed?.message?.toLowerCase() ?? "";
+    const isAzureDenied =
+      message.includes("azure") ||
+      message.includes("application insights") ||
+      message.includes("insights access") ||
+      message.includes("monitor");
+    throw new ApiRequestError(
+      isAzureDenied
+        ? "Azure Insights access denied. Contact your infrastructure team."
+        : "You don't have permission to perform this action.",
+      403,
+      parsed?.errors ?? []
+    );
+  }
+
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
 async function requestAdminDocumentation<TRes>(
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
@@ -2895,6 +3106,146 @@ export async function getAdminBillingInsights(): Promise<BillingInsightsResponse
 
 export async function getAdminDashboardOverview(): Promise<AdminDashboardOverviewResponse> {
   return requestAdminDashboard<AdminDashboardOverviewResponse>("GET", "/overview");
+}
+
+export async function getAdminTechnicalHealth(): Promise<TechnicalHealthResponse> {
+  return requestAdminTechnical<TechnicalHealthResponse>("GET", "/health");
+}
+
+export async function getAdminTechnicalOverview(params?: {
+  from?: string;
+  to?: string;
+}): Promise<TechnicalOverviewResponse> {
+  const query = new URLSearchParams();
+  if (params?.from) query.set("from", params.from);
+  if (params?.to) query.set("to", params.to);
+  return requestAdminTechnical<TechnicalOverviewResponse>("GET", `/overview${query.size ? `?${query.toString()}` : ""}`);
+}
+
+function buildCursorQuery(params?: {
+  from?: string;
+  to?: string;
+  pageSize?: number;
+  cursorTimestamp?: string;
+  cursorItemId?: string;
+  severity?: "ALL" | "INFO" | "WARN" | "ERROR";
+}): string {
+  const query = new URLSearchParams();
+  if (params?.from) query.set("from", params.from);
+  if (params?.to) query.set("to", params.to);
+  if (params?.pageSize != null) query.set("pageSize", String(params.pageSize));
+  if (params?.cursorTimestamp) query.set("cursorTimestamp", params.cursorTimestamp);
+  if (params?.cursorItemId) query.set("cursorItemId", params.cursorItemId);
+  if (params?.severity) query.set("severity", params.severity);
+  return query.toString();
+}
+
+export async function getAdminTechnicalLogs(params?: {
+  from?: string;
+  to?: string;
+  severity?: "ALL" | "INFO" | "WARN" | "ERROR";
+  pageSize?: number;
+  cursorTimestamp?: string;
+  cursorItemId?: string;
+}): Promise<CursorPagedResponse<TechnicalLogItem>> {
+  const qs = buildCursorQuery(params);
+  return requestAdminTechnical<CursorPagedResponse<TechnicalLogItem>>("GET", `/logs${qs ? `?${qs}` : ""}`);
+}
+
+export async function getAdminTechnicalErrors(params?: {
+  from?: string;
+  to?: string;
+  pageSize?: number;
+  cursorTimestamp?: string;
+  cursorItemId?: string;
+}): Promise<CursorPagedResponse<TechnicalErrorItem>> {
+  const qs = buildCursorQuery(params);
+  return requestAdminTechnical<CursorPagedResponse<TechnicalErrorItem>>("GET", `/errors${qs ? `?${qs}` : ""}`);
+}
+
+export async function getAdminTechnicalWarnings(params?: {
+  from?: string;
+  to?: string;
+  pageSize?: number;
+  cursorTimestamp?: string;
+  cursorItemId?: string;
+}): Promise<CursorPagedResponse<TechnicalWarningItem>> {
+  const qs = buildCursorQuery(params);
+  return requestAdminTechnical<CursorPagedResponse<TechnicalWarningItem>>("GET", `/warnings${qs ? `?${qs}` : ""}`);
+}
+
+export async function getAdminTechnicalFailedJobs(params?: {
+  from?: string;
+  to?: string;
+  pageSize?: number;
+  cursorTimestamp?: string;
+  cursorItemId?: string;
+}): Promise<CursorPagedResponse<TechnicalFailedJobItem>> {
+  const qs = buildCursorQuery(params);
+  return requestAdminTechnical<CursorPagedResponse<TechnicalFailedJobItem>>("GET", `/failed-jobs${qs ? `?${qs}` : ""}`);
+}
+
+export async function getAdminTechnicalAlerts(params?: {
+  from?: string;
+  to?: string;
+  severity?: "ALL" | "WARN" | "ERROR";
+  pageSize?: number;
+  cursorTimestamp?: string;
+  cursorItemId?: string;
+}): Promise<CursorPagedResponse<TechnicalAlertItem>> {
+  const qs = buildCursorQuery(params);
+  return requestAdminTechnical<CursorPagedResponse<TechnicalAlertItem>>("GET", `/alerts${qs ? `?${qs}` : ""}`);
+}
+
+type TechnicalMetricParams = {
+  range?: TechnicalRange;
+  from?: string;
+  to?: string;
+};
+
+function buildTechnicalMetricQuery(params?: TechnicalMetricParams): string {
+  const query = new URLSearchParams();
+  if (params?.range) query.set("range", params.range);
+  if (params?.from) query.set("from", params.from);
+  if (params?.to) query.set("to", params.to);
+  return query.toString();
+}
+
+async function getAdminTechnicalRangeKql(path: string, params?: TechnicalMetricParams): Promise<KqlResponse> {
+  const qs = buildTechnicalMetricQuery({ range: params?.range ?? "1d", from: params?.from, to: params?.to });
+  return requestAdminTechnical<KqlResponse>("GET", `${path}${qs ? `?${qs}` : ""}`);
+}
+
+export async function getAdminTechnicalTotalRequests(params?: TechnicalMetricParams): Promise<KqlResponse> {
+  return getAdminTechnicalRangeKql("/total-requests", params);
+}
+
+export async function getAdminTechnicalFailedRequests(params?: TechnicalMetricParams): Promise<KqlResponse> {
+  return getAdminTechnicalRangeKql("/failed-requests", params);
+}
+
+export async function getAdminTechnicalErrorRate(params?: TechnicalMetricParams): Promise<KqlResponse> {
+  return getAdminTechnicalRangeKql("/error-rate", params);
+}
+
+export async function getAdminTechnicalAverageResponseTime(params?: TechnicalMetricParams): Promise<KqlResponse> {
+  return getAdminTechnicalRangeKql("/average-response-time", params);
+}
+
+export async function getAdminTechnicalP95ResponseTime(params?: TechnicalMetricParams): Promise<KqlResponse> {
+  return getAdminTechnicalRangeKql("/p95-response-time", params);
+}
+
+export async function getAdminTechnicalRequestsOverTime(params?: TechnicalMetricParams): Promise<KqlResponse> {
+  return getAdminTechnicalRangeKql("/requests-over-time", params);
+}
+
+export async function getAdminTechnicalFailedRequestsOverTime(params?: TechnicalMetricParams): Promise<KqlResponse> {
+  return getAdminTechnicalRangeKql("/failed-requests-over-time", params);
+}
+
+export async function getAdminTechnicalTopEndpoints(params?: TechnicalMetricParams): Promise<KqlResponse> {
+  return getAdminTechnicalRangeKql("/top-endpoints", params);
 }
 
 export async function getAdminEarnings(params: {
