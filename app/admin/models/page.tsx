@@ -641,16 +641,16 @@ export default function AdminModelsPage() {
             </p>
           </div>
 
-          <div className="flex w-full flex-wrap items-center justify-end gap-2">
+          <div className="flex w-auto flex-nowrap items-center justify-end gap-2">
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search fullname or username..."
-              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 sm:w-80 lg:w-72"
+              className="w-72 rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 lg:w-96"
             />
             <Link
               href="/admin/models/create"
-              className="rounded-xl bg-zinc-950 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-900"
+              className="shrink-0 rounded-xl bg-zinc-950 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-900"
             >
               + Add model
             </Link>

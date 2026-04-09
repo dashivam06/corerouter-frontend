@@ -247,6 +247,7 @@ export default function AdminInsightsPage() {
   const totalRequests = safeNumber(parseKqlResponse<Record<string, unknown>>(totalRequestsQuery.data)[0]?.totalRequests);
   const failedRequests = safeNumber(parseKqlResponse<Record<string, unknown>>(failedRequestsQuery.data)[0]?.failedRequests);
   const errorRate = safeNumber(parseKqlResponse<Record<string, unknown>>(errorRateQuery.data)[0]?.errorRate);
+  const failureRatePercent = totalRequests > 0 ? (failedRequests / totalRequests) * 100 : errorRate;
   const avgResponseMs = safeNumber(parseKqlResponse<Record<string, unknown>>(avgResponseQuery.data)[0]?.avgDurationMs);
   const p95ResponseMs = safeNumber(parseKqlResponse<Record<string, unknown>>(p95ResponseQuery.data)[0]?.p95DurationMs);
 
@@ -288,12 +289,12 @@ export default function AdminInsightsPage() {
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-white p-4">
           <p className="text-xs text-zinc-500">Failed Requests</p>
-          <p className="mt-1 text-2xl font-semibold text-zinc-950">{failedRequests.toLocaleString()}</p>
+          <p className="mt-1 text-2xl font-semibold text-red-600">{failedRequests.toLocaleString()}</p>
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-white p-4">
           <p className="text-xs text-zinc-500">Error Rate</p>
-          <p className={`mt-1 text-2xl font-semibold ${errorRate > 5 ? "text-red-600" : errorRate >= 1 ? "text-amber-600" : "text-green-600"}`}>
-            {errorRate.toFixed(2)}%
+          <p className="mt-1 text-2xl font-semibold text-red-600">
+            {failureRatePercent.toFixed(2)}%
           </p>
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-white p-4">
