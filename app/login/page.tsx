@@ -5,36 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
-import { getProfile, loginSendEmail, loginWithGitHub, loginWithPassword } from "@/lib/api";
+import { getProfile, loginSendEmail, loginWithPassword } from "@/lib/api";
 import { setAuthTokenStorage, setRefreshTokenCookie } from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
 
 const surfaceLowest = "bg-[#0e0e10]";
 const labelClass =
   "text-[10px] font-bold uppercase tracking-widest text-zinc-400 font-montserrat ";
-const GOOGLE_CLIENT_ID = "897351990833-qhbkkacr92qk2jal85i16419cccde5cv.apps.googleusercontent.com";
-const GOOGLE_REDIRECT_URI =
-  process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI ||
-  "https://api.corerouter.me/login/oauth2/code/google";
-const GOOGLE_OAUTH_STATE_KEY = "google_oauth_state";
-
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function buildGoogleOAuthUrl(redirectUri: string, state: string) {
-  const params = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: "openid email profile",
-    include_granted_scopes: "true",
-    prompt: "consent",
-    state,
-  });
-
-  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-}
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -150,115 +127,15 @@ export default function LoginPage() {
     setError(null);
     setSocialLoading("google");
 
-    const state =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    window.sessionStorage.setItem(GOOGLE_OAUTH_STATE_KEY, state);
-
-    window.location.assign(buildGoogleOAuthUrl(GOOGLE_REDIRECT_URI, state));
+    window.location.assign("https://api.corerouter.me/oauth2/authorization/google");
   }
 
-  async function onGitHubSignIn() {
+  function onGitHubSignIn() {
     setFieldErrors({});
     setError(null);
     setSocialLoading("github");
 
-    let githubWindow: Window | null = null;
-    try {
-      githubWindow = window.open("", "_blank");
-      const deviceResponse = await fetch("/api/auth/github/device", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ type: "start" }),
-      });
-
-      if (!deviceResponse.ok) {
-        throw new Error("Unable to start GitHub login.");
-      }
-
-      const deviceData: {
-        device_code: string;
-        user_code: string;
-        verification_uri: string;
-        interval?: number;
-        expires_in?: number;
-        error?: string;
-      } = await deviceResponse.json();
-
-      if (deviceData.error) {
-        throw new Error(deviceData.error);
-      }
-
-      if (githubWindow) {
-        githubWindow.location.href = deviceData.verification_uri;
-      } else {
-        window.open(deviceData.verification_uri, "_blank");
-      }
-      setError(`Open GitHub and enter code: ${deviceData.user_code}`);
-
-      let intervalMs = Math.max((deviceData.interval ?? 5) * 1000, 1000);
-      const expiresAt = Date.now() + (deviceData.expires_in ?? 900) * 1000;
-
-      while (Date.now() < expiresAt) {
-        await sleep(intervalMs);
-
-        const tokenResponse = await fetch("/api/auth/github/device", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ type: "token", deviceCode: deviceData.device_code }),
-        });
-
-        const tokenData: {
-          access_token?: string;
-          error?: string;
-          error_description?: string;
-        } = await tokenResponse.json();
-
-        if (!tokenResponse.ok && tokenData.error !== "authorization_pending" && tokenData.error !== "slow_down") {
-          throw new Error(tokenData.error_description || tokenData.error || "GitHub login failed.");
-        }
-
-        if (tokenData.access_token) {
-          const result = await loginWithGitHub(tokenData.access_token);
-          setSocialLoading(null);
-
-          if (result.error || !result.accessToken || !result.user) {
-            setFieldErrors(result.fieldErrors ?? {});
-            setError(result.error ?? "GitHub login failed.");
-            return;
-          }
-
-          await finalizeSession(result.user, {
-            accessToken: result.accessToken,
-            refreshToken: result.refreshToken,
-            expiresIn: result.expiresIn,
-          });
-          return;
-        }
-
-        if (tokenData.error === "authorization_pending") {
-          continue;
-        }
-
-        if (tokenData.error === "slow_down") {
-          intervalMs += 5000;
-          continue;
-        }
-
-        throw new Error(tokenData.error_description || tokenData.error || "GitHub login failed.");
-      }
-
-      throw new Error("GitHub login timed out.");
-    } catch (err) {
-      githubWindow?.close();
-      setSocialLoading(null);
-      setError(err instanceof Error ? err.message : "GitHub login failed.");
-    }
+    window.location.assign("https://api.corerouter.me/oauth2/authorization/github");
   }
 
   return (

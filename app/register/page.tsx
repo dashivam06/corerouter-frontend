@@ -8,7 +8,6 @@ import { Loader2 } from "lucide-react";
 import {
   completeRegistration,
   getProfile,
-  loginWithGitHub,
   registerSendOtp,
   verifyOtp,
 } from "@/lib/api";
@@ -23,25 +22,6 @@ const labelDark =
   "text-[10px] font-bold uppercase tracking-widest text-zinc-500 font-poppins";
 const otpBox =
   "h-14 w-12 rounded-sm border border-[#474747] bg-[#1c1b1d] text-center text-lg text-white outline-none focus:border-white font-poppins";
-const GOOGLE_CLIENT_ID = "897351990833-qhbkkacr92qk2jal85i16419cccde5cv.apps.googleusercontent.com";
-const GOOGLE_REDIRECT_URI =
-  process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI ||
-  "https://api.corerouter.me/login/oauth2/code/google";
-const GOOGLE_OAUTH_STATE_KEY = "google_oauth_state";
-
-function buildGoogleOAuthUrl(redirectUri: string, state: string) {
-  const params = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: "openid email profile",
-    include_granted_scopes: "true",
-    prompt: "consent",
-    state,
-  });
-
-  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-}
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -167,112 +147,15 @@ export default function RegisterPage() {
     setError(null);
     setSocialLoading("google");
 
-    const state =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    window.sessionStorage.setItem(GOOGLE_OAUTH_STATE_KEY, state);
-
-    window.location.assign(buildGoogleOAuthUrl(GOOGLE_REDIRECT_URI, state));
+    window.location.assign("https://api.corerouter.me/oauth2/authorization/google");
   }
 
-  async function onGitHubCreate() {
+  function onGitHubCreate() {
     setFieldErrors({});
     setError(null);
     setSocialLoading("github");
 
-    let githubWindow: Window | null = null;
-    try {
-      githubWindow = window.open("", "_blank");
-      const deviceResponse = await fetch("/api/auth/github/device", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ type: "start" }),
-      });
-
-      if (!deviceResponse.ok) {
-        throw new Error("Unable to start GitHub sign-up.");
-      }
-
-      const deviceData: {
-        device_code: string;
-        user_code: string;
-        verification_uri: string;
-        interval?: number;
-        expires_in?: number;
-        error?: string;
-      } = await deviceResponse.json();
-
-      if (deviceData.error) {
-        throw new Error(deviceData.error);
-      }
-
-      if (githubWindow) {
-        githubWindow.location.href = deviceData.verification_uri;
-      } else {
-        window.open(deviceData.verification_uri, "_blank");
-      }
-      setError(`Open GitHub and enter code: ${deviceData.user_code}`);
-
-      let intervalMs = Math.max((deviceData.interval ?? 5) * 1000, 1000);
-      const expiresAt = Date.now() + (deviceData.expires_in ?? 900) * 1000;
-
-      while (Date.now() < expiresAt) {
-        await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
-
-        const tokenResponse = await fetch("/api/auth/github/device", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ type: "token", deviceCode: deviceData.device_code }),
-        });
-
-        const tokenData: {
-          access_token?: string;
-          error?: string;
-          error_description?: string;
-        } = await tokenResponse.json();
-
-        if (!tokenResponse.ok && tokenData.error !== "authorization_pending" && tokenData.error !== "slow_down") {
-          throw new Error(tokenData.error_description || tokenData.error || "GitHub sign-up failed.");
-        }
-
-        if (tokenData.access_token) {
-          const result = await loginWithGitHub(tokenData.access_token);
-          setSocialLoading(null);
-
-          if (result.error || !result.accessToken || !result.user) {
-            setFieldErrors(result.fieldErrors ?? {});
-            setError(result.error ?? "GitHub sign-up failed.");
-            return;
-          }
-
-          await finalizeSession(result.user, {
-            accessToken: result.accessToken,
-            refreshToken: result.refreshToken,
-            expiresIn: result.expiresIn,
-          });
-          return;
-        }
-
-        if (tokenData.error === "authorization_pending") continue;
-        if (tokenData.error === "slow_down") {
-          intervalMs += 5000;
-          continue;
-        }
-
-        throw new Error(tokenData.error_description || tokenData.error || "GitHub sign-up failed.");
-      }
-
-      throw new Error("GitHub sign-up timed out.");
-    } catch (err) {
-      githubWindow?.close();
-      setSocialLoading(null);
-      setError(err instanceof Error ? err.message : "GitHub sign-up failed.");
-    }
+    window.location.assign("https://api.corerouter.me/oauth2/authorization/github");
   }
 
   async function onVerifyOtp(e: React.FormEvent) {
