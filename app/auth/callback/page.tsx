@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   setAuthTokenStorage,
@@ -11,7 +11,7 @@ import {
 } from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
 
-export default function AuthCallbackPage() {
+function AuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const setSession = useAuthStore((s) => s.setSession);
@@ -99,5 +99,26 @@ export default function AuthCallbackPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function CallbackFallback() {
+  return (
+    <div className="min-h-screen bg-[#0e0e10] px-6 py-16 text-white">
+      <div className="mx-auto max-w-md rounded-sm border border-zinc-700 bg-zinc-900/70 p-6">
+        <div className="flex items-center gap-3 text-sm text-zinc-200">
+          <Loader2 className="size-4 animate-spin" />
+          <span>Loading authentication callback...</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function AuthCallbackPage() {
+  return (
+    <Suspense fallback={<CallbackFallback />}>
+      <AuthCallbackContent />
+    </Suspense>
   );
 }
