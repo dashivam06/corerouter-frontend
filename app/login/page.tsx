@@ -5,8 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
-import { getProfile, loginSendEmail, loginWithPassword } from "@/lib/api";
-import { setAuthTokenStorage, setRefreshTokenCookie } from "@/lib/auth";
+import { loginSendEmail, loginWithPassword } from "@/lib/api";
+import {
+  setAuthProfileStorage,
+  setAuthTokenStorage,
+  setRefreshTokenCookie,
+} from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
 
 const surfaceLowest = "bg-[#0e0e10]";
@@ -60,12 +64,8 @@ export default function LoginPage() {
     setAuthTokenStorage(tokens.accessToken);
     setRefreshTokenCookie(tokens.refreshToken);
 
-    try {
-      const profile = await getProfile(tokens.accessToken, user);
-      setSession(profile, tokens);
-    } catch {
-      setSession(user, tokens);
-    }
+    setSession(user, tokens);
+    setAuthProfileStorage(user);
 
     router.push("/dashboard");
   }
@@ -86,6 +86,27 @@ export default function LoginPage() {
 
     return () => window.clearTimeout(timer);
   }, [showAuthNotice]);
+
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      // If restored from browser back-forward cache, clear stale social loading UI.
+      if (event.persisted) {
+        setSocialLoading(null);
+      }
+    };
+
+    const onWindowFocus = () => {
+      setSocialLoading(null);
+    };
+
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("focus", onWindowFocus);
+
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("focus", onWindowFocus);
+    };
+  }, []);
 
   async function onContinueEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -135,7 +156,7 @@ export default function LoginPage() {
     setError(null);
     setSocialLoading("github");
 
-    window.location.assign("https://api.corerouter.me/oauth2/authorization/github");
+    window.location.href = "https://api.corerouter.me/oauth2/authorization/github";
   }
 
   return (

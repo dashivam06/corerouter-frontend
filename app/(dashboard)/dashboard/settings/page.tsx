@@ -26,9 +26,11 @@ import {
   updateProfile,
 } from "@/lib/api";
 import {
+  clearAuthProfileStorage,
   clearRefreshTokenCookie,
   clearAuthTokenStorage,
   getRefreshTokenCookie,
+  setAuthProfileStorage,
 } from "@/lib/auth";
 import { uploadImageToCloudinary } from "@/lib/cloudinary";
 import { UserHeader } from "@/components/layout/user-header";
@@ -144,7 +146,7 @@ export default function SettingsPage() {
     let active = true;
 
     const run = async () => {
-      if (!accessToken) {
+      if (!accessToken || user) {
         return;
       }
 
@@ -152,6 +154,7 @@ export default function SettingsPage() {
         const profile = await getProfile(accessToken, user ?? undefined);
         if (!active) return;
         setUser(profile);
+        setAuthProfileStorage(profile);
         setFullName(profile.full_name);
         setSubscribed(profile.email_subscribed);
 
@@ -192,7 +195,7 @@ export default function SettingsPage() {
     return () => {
       active = false;
     };
-  }, [accessToken, setUser]);
+  }, [accessToken, setUser, user]);
 
   const memberSince = user?.created_at
     ? format(new Date(user.created_at), "MMMM yyyy")
@@ -202,6 +205,7 @@ export default function SettingsPage() {
     clearSession();
     clearRefreshTokenCookie();
     clearAuthTokenStorage();
+    clearAuthProfileStorage();
     window.location.assign("/login");
   }
 
@@ -365,6 +369,7 @@ export default function SettingsPage() {
 
                       const updatedProfile = await updateProfile(accessToken || "", payload);
                       setUser(updatedProfile);
+                      setAuthProfileStorage(updatedProfile);
                       setFullName(updatedProfile.full_name);
                       setSubscribed(updatedProfile.email_subscribed);
                       setPendingProfileImageFile(null);

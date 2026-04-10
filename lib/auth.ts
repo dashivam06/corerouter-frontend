@@ -2,6 +2,7 @@ import type { MockUser } from "@/lib/mock-data";
 
 const REFRESH_TOKEN_COOKIE_KEY = "refresh_token";
 const AUTH_TOKEN_STORAGE_KEY = "auth_token";
+const AUTH_PROFILE_STORAGE_KEY = "auth_profile";
 
 type JwtClaims = {
   role?: string;
@@ -53,9 +54,32 @@ export function clearAuthTokenStorage() {
   window.localStorage.removeItem("corerouter_access_token");
 }
 
+export function getAuthProfileStorage(): MockUser | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(AUTH_PROFILE_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as MockUser;
+  } catch {
+    window.localStorage.removeItem(AUTH_PROFILE_STORAGE_KEY);
+    return null;
+  }
+}
+
+export function setAuthProfileStorage(user: MockUser) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(AUTH_PROFILE_STORAGE_KEY, JSON.stringify(user));
+}
+
+export function clearAuthProfileStorage() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(AUTH_PROFILE_STORAGE_KEY);
+}
+
 export function clearAllAuthClientTokens() {
   clearRefreshTokenCookie();
   clearAuthTokenStorage();
+  clearAuthProfileStorage();
 }
 
 export function decodeJwtClaims(token: string): JwtClaims | null {

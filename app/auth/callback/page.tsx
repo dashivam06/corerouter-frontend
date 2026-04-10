@@ -5,11 +5,22 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
+  getAuthProfileStorage,
+  setAuthProfileStorage,
   setAuthTokenStorage,
   setRefreshTokenCookie,
   userFromAccessToken,
 } from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
+
+function normalizeQueryParam(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.toLowerCase();
+  if (normalized === "null" || normalized === "undefined") return null;
+  return trimmed;
+}
 
 function AuthCallbackContent() {
   const router = useRouter();
@@ -21,13 +32,16 @@ function AuthCallbackContent() {
   useEffect(() => {
     let canceled = false;
 
-    const run = () => {
+    const run = async () => {
       const status = searchParams.get("status");
-      const provider = searchParams.get("provider");
-      const accessToken = searchParams.get("accessToken");
-      const refreshToken = searchParams.get("refreshToken");
+      const provider = normalizeQueryParam(searchParams.get("provider"));
+      const accessToken = normalizeQueryParam(searchParams.get("accessToken"));
+      const refreshToken = normalizeQueryParam(searchParams.get("refreshToken"));
       const expiresInRaw = searchParams.get("expiresIn");
-      const responseMessage = searchParams.get("message");
+      const responseMessage = normalizeQueryParam(searchParams.get("message"));
+      const profileFullName = normalizeQueryParam(searchParams.get("fullName"));
+      const profileEmail = normalizeQueryParam(searchParams.get("email"));
+      const profileImage = normalizeQueryParam(searchParams.get("profileImage"));
 
       if (status === "success") {
         if (!accessToken || !refreshToken) {
@@ -48,13 +62,46 @@ function AuthCallbackContent() {
         setAuthTokenStorage(accessToken);
         setRefreshTokenCookie(refreshToken);
 
-        const user = userFromAccessToken(accessToken);
-        if (user) {
-          setSession(user, {
+        const tokenUser = userFromAccessToken(accessToken);
+        const cachedUser = getAuthProfileStorage();
+
+        const baseUser = tokenUser || cachedUser;
+        const sessionUser = baseUser
+          ? {
+              ...baseUser,
+              full_name: profileFullName?.trim() || baseUser.full_name,
+              email: profileEmail || baseUser.email,
+              profile_image: profileImage ?? baseUser.profile_image,
+              last_login: new Date().toISOString(),
+            }
+          : null;
+
+        if (sessionUser && !canceled) {
+          setSession(sessionUser, {
             accessToken,
             refreshToken,
             expiresIn,
           });
+          setAuthProfileStorage(sessionUser);
+        } else if (!sessionUser && profileEmail && !canceled) {
+          const fallbackUser = {
+            user_id: Date.now(),
+            balance: 0,
+            created_at: new Date().toISOString(),
+            email: profileEmail,
+            email_subscribed: true,
+            full_name: profileFullName?.trim() || profileEmail,
+            last_login: new Date().toISOString(),
+            profile_image: profileImage,
+            role: "USER" as const,
+            status: "ACTIVE" as const,
+          };
+          setSession(fallbackUser, {
+            accessToken,
+            refreshToken,
+            expiresIn,
+          });
+          setAuthProfileStorage(fallbackUser);
         }
 
         if (!canceled) {
@@ -74,7 +121,7 @@ function AuthCallbackContent() {
       }, 1500);
     };
 
-    run();
+    void run();
 
     return () => {
       canceled = true;

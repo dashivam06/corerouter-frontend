@@ -7,11 +7,14 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   completeRegistration,
-  getProfile,
   registerSendOtp,
   verifyOtp,
 } from "@/lib/api";
-import { setAuthTokenStorage, setRefreshTokenCookie } from "@/lib/auth";
+import {
+  setAuthProfileStorage,
+  setAuthTokenStorage,
+  setRefreshTokenCookie,
+} from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
 
 type Step = "email" | "otp" | "profile";
@@ -92,12 +95,8 @@ export default function RegisterPage() {
     setAuthTokenStorage(tokens.accessToken);
     setRefreshTokenCookie(tokens.refreshToken);
 
-    try {
-      const profile = await getProfile(tokens.accessToken, user);
-      setSession(profile, tokens);
-    } catch {
-      setSession(user, tokens);
-    }
+    setSession(user, tokens);
+    setAuthProfileStorage(user);
 
     router.push("/dashboard");
   }

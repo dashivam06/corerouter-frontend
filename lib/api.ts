@@ -715,6 +715,16 @@ type AuthTokens = {
   expiresIn: number;
 };
 
+type AuthUserInfoResponse = {
+  fullName: string;
+  email: string;
+  profileImage: string | null;
+};
+
+type AuthResponse = AuthTokens & {
+  profile?: AuthUserInfoResponse;
+};
+
 type RequestOtpResponse = {
   verificationId: string;
 };
@@ -876,6 +886,32 @@ function buildSessionUser(email: string, fullName?: string): MockUser {
     profile_image: null,
     role: "USER",
     status: "ACTIVE",
+  };
+}
+
+function buildSessionUserFromAuth(
+  data: AuthResponse,
+  fallback?: { email?: string; fullName?: string }
+): MockUser {
+  const tokenUser = userFromAccessToken(data.accessToken);
+  const profile = data.profile;
+
+  return {
+    user_id: tokenUser?.user_id ?? Date.now(),
+    balance: 0,
+    created_at: tokenUser?.created_at ?? new Date().toISOString(),
+    email: profile?.email || tokenUser?.email || fallback?.email || "",
+    email_subscribed: tokenUser?.email_subscribed ?? true,
+    full_name:
+      profile?.fullName?.trim() ||
+      fallback?.fullName?.trim() ||
+      tokenUser?.full_name ||
+      fallback?.email ||
+      "User",
+    last_login: new Date().toISOString(),
+    profile_image: profile?.profileImage ?? tokenUser?.profile_image ?? null,
+    role: tokenUser?.role ?? "USER",
+    status: tokenUser?.status ?? "ACTIVE",
   };
 }
 
@@ -2492,7 +2528,7 @@ export async function loginWithPassword(
   password: string
 ): Promise<{ user: MockUser | null; accessToken: string; refreshToken: string; expiresIn: number; error?: string; status?: number; fieldErrors?: Record<string, string> }> {
   try {
-    const data = await postAuth<{ email: string; password: string }, AuthTokens>(
+    const data = await postAuth<{ email: string; password: string }, AuthResponse>(
       "/login",
       {
         email: email.trim(),
@@ -2500,10 +2536,7 @@ export async function loginWithPassword(
       }
     );
     return {
-      user: {
-        ...(userFromAccessToken(data.accessToken) ??
-          buildSessionUser(email.trim())),
-      },
+      user: buildSessionUserFromAuth(data, { email: email.trim() }),
       accessToken: data.accessToken,
       refreshToken: data.refreshToken,
       expiresIn: data.expiresIn,
@@ -2526,14 +2559,12 @@ export async function loginWithPassword(
 
 export async function loginWithGoogleCode(code: string, redirectUri?: string): Promise<{ user: MockUser | null; accessToken: string; refreshToken: string; expiresIn: number; error?: string; status?: number; fieldErrors?: Record<string, string> }> {
   try {
-    const data = await postAuth<{ code: string; redirectUri?: string }, AuthTokens>(
+    const data = await postAuth<{ code: string; redirectUri?: string }, AuthResponse>(
       "/google/login",
       { code, redirectUri }
     );
     return {
-      user: {
-        ...(userFromAccessToken(data.accessToken) ?? buildSessionUser("google-user@example.com")),
-      },
+      user: buildSessionUserFromAuth(data, { email: "google-user@example.com" }),
       accessToken: data.accessToken,
       refreshToken: data.refreshToken,
       expiresIn: data.expiresIn,
@@ -2556,14 +2587,12 @@ export async function loginWithGoogleCode(code: string, redirectUri?: string): P
 
 export async function loginWithGitHub(accessToken: string): Promise<{ user: MockUser | null; accessToken: string; refreshToken: string; expiresIn: number; error?: string; status?: number; fieldErrors?: Record<string, string> }> {
   try {
-    const data = await postAuth<{ accessToken: string }, AuthTokens>(
+    const data = await postAuth<{ accessToken: string }, AuthResponse>(
       "/github/login",
       { accessToken }
     );
     return {
-      user: {
-        ...(userFromAccessToken(data.accessToken) ?? buildSessionUser("github-user@example.com")),
-      },
+      user: buildSessionUserFromAuth(data, { email: "github-user@example.com" }),
       accessToken: data.accessToken,
       refreshToken: data.refreshToken,
       expiresIn: data.expiresIn,
@@ -2641,7 +2670,7 @@ export async function completeRegistration(body: {
   try {
     const data = await postAuth<
       { verificationId: string; fullName: string; password: string; confirmPassword: string },
-      AuthTokens
+      AuthResponse
     >("/register", {
       verificationId: body.verificationId,
       fullName: body.full_name,
@@ -2650,10 +2679,10 @@ export async function completeRegistration(body: {
     });
 
     return {
-      user: {
-        ...(userFromAccessToken(data.accessToken) ??
-          buildSessionUser(body.email, body.full_name)),
-      },
+      user: buildSessionUserFromAuth(data, {
+        email: body.email,
+        fullName: body.full_name,
+      }),
       accessToken: data.accessToken,
       refreshToken: data.refreshToken,
       expiresIn: data.expiresIn,
@@ -2756,8 +2785,8 @@ export async function forgotPasswordReset(body: {
   }
 }
 
-export async function refreshAuthToken(refreshToken: string): Promise<AuthTokens> {
-  return postAuth<{ refreshToken: string }, AuthTokens>("/refresh", { refreshToken });
+export async function refreshAuthToken(refreshToken: string): Promise<AuthResponse> {
+  return postAuth<{ refreshToken: string }, AuthResponse>("/refresh", { refreshToken });
 }
 
 export async function logoutAuth(refreshToken: string): Promise<void> {

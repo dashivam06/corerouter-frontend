@@ -3,17 +3,36 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect, useRef, useState } from "react";
-import { ApiRequestError, getProfile, refreshAuthToken } from "@/lib/api";
+import { refreshAuthToken } from "@/lib/api";
 import {
   clearAllAuthClientTokens,
+  getAuthProfileStorage,
   getAuthTokenStorage,
   getJwtExpiryMs,
   getRefreshTokenCookie,
+  setAuthProfileStorage,
   setAuthTokenStorage,
   setRefreshTokenCookie,
   userFromAccessToken,
 } from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
+
+function mergeUsers(
+  baseUser: ReturnType<typeof userFromAccessToken>,
+  fallbackUser = getAuthProfileStorage(),
+  profile?: { fullName: string; email: string; profileImage: string | null }
+) {
+  const user = baseUser || fallbackUser;
+  if (!user) return null;
+
+  return {
+    ...user,
+    full_name: profile?.fullName?.trim() || user.full_name,
+    email: profile?.email || user.email,
+    profile_image: profile?.profileImage ?? user.profile_image,
+    last_login: new Date().toISOString(),
+  };
+}
 
 function AuthBootstrapper() {
   const authBootstrapped = useAuthStore((s) => s.authBootstrapped);
@@ -30,41 +49,24 @@ function AuthBootstrapper() {
     const run = async () => {
       const refreshToken = getRefreshTokenCookie();
       const accessToken = getAuthTokenStorage();
+      const cachedProfile = getAuthProfileStorage();
 
       try {
         if (accessToken) {
-          const user = userFromAccessToken(accessToken);
+          const tokenUser = userFromAccessToken(accessToken);
+          const user = mergeUsers(tokenUser, cachedProfile);
           const expMs = getJwtExpiryMs(accessToken);
           if (user) {
             const remaining = expMs
               ? Math.floor((expMs - Date.now()) / 1000)
               : 3600;
             if (remaining > 0) {
+              setAuthProfileStorage(user);
               setSession(user, {
                 accessToken,
                 refreshToken: refreshToken || "",
                 expiresIn: remaining,
               });
-
-              try {
-                const profile = await getProfile(accessToken, user);
-                if (!canceled) {
-                  if (profile.status === "DELETED") {
-                    clearSession();
-                    clearAllAuthClientTokens();
-                    window.location.assign("/login");
-                    return;
-                  }
-                  setUser(profile);
-                }
-              } catch (error) {
-                if (error instanceof ApiRequestError && error.status === 404) {
-                  clearSession();
-                  clearAllAuthClientTokens();
-                  window.location.assign("/login");
-                  return;
-                }
-              }
 
               if (!canceled) {
                 setAuthBootstrapped(true);
@@ -76,31 +78,14 @@ function AuthBootstrapper() {
 
         if (refreshToken) {
           const nextTokens = await refreshAuthToken(refreshToken);
-          const user = userFromAccessToken(nextTokens.accessToken);
+          const tokenUser = userFromAccessToken(nextTokens.accessToken);
+          const user = mergeUsers(tokenUser, cachedProfile, nextTokens.profile);
           if (user && !canceled) {
             setAuthTokenStorage(nextTokens.accessToken);
             setRefreshTokenCookie(nextTokens.refreshToken);
+            setAuthProfileStorage(user);
             setSession(user, nextTokens);
-
-            try {
-              const profile = await getProfile(nextTokens.accessToken, user);
-              if (!canceled) {
-                if (profile.status === "DELETED") {
-                  clearSession();
-                  clearAllAuthClientTokens();
-                  window.location.assign("/login");
-                  return;
-                }
-                setUser(profile);
-              }
-            } catch (error) {
-              if (error instanceof ApiRequestError && error.status === 404) {
-                clearSession();
-                clearAllAuthClientTokens();
-                window.location.assign("/login");
-                return;
-              }
-            }
+            setUser(user);
 
             if (!canceled) {
               setAuthBootstrapped(true);
@@ -134,6 +119,7 @@ function AuthSessionRefresher() {
   const accessTokenExpiresAt = useAuthStore((s) => s.accessTokenExpiresAt);
   const setTokens = useAuthStore((s) => s.setTokens);
   const setUser = useAuthStore((s) => s.setUser);
+  const user = useAuthStore((s) => s.user);
   const clearSession = useAuthStore((s) => s.clearSession);
   const authBootstrapped = useAuthStore((s) => s.authBootstrapped);
   const timeoutRef = useRef<number | null>(null);
@@ -155,31 +141,14 @@ function AuthSessionRefresher() {
       try {
         const nextTokens = await refreshAuthToken(refreshToken);
         if (!canceled) {
-          const user = userFromAccessToken(nextTokens.accessToken);
-          if (!user) throw new Error("Unable to decode user from access token");
+          const tokenUser = userFromAccessToken(nextTokens.accessToken);
+          const nextUser = mergeUsers(tokenUser, user ?? getAuthProfileStorage(), nextTokens.profile);
+          if (!nextUser) throw new Error("Unable to restore user from auth state");
           setAuthTokenStorage(nextTokens.accessToken);
           setRefreshTokenCookie(nextTokens.refreshToken);
           setTokens(nextTokens);
-          try {
-            const profile = await getProfile(nextTokens.accessToken, user);
-            if (!canceled) {
-              if (profile.status === "DELETED") {
-                clearSession();
-                clearAllAuthClientTokens();
-                window.location.assign("/login");
-                return;
-              }
-              setUser(profile);
-            }
-          } catch (error) {
-            if (error instanceof ApiRequestError && error.status === 404) {
-              clearSession();
-              clearAllAuthClientTokens();
-              window.location.assign("/login");
-              return;
-            }
-            setUser(user);
-          }
+          setAuthProfileStorage(nextUser);
+          setUser(nextUser);
         }
       } catch (error) {
         const status =
@@ -217,7 +186,7 @@ function AuthSessionRefresher() {
         timeoutRef.current = null;
       }
     };
-  }, [authBootstrapped, accessTokenExpiresAt, setTokens, setUser, clearSession]);
+  }, [authBootstrapped, accessTokenExpiresAt, clearSession, setTokens, setUser, user]);
 
   return null;
 }
