@@ -7,6 +7,9 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   completeRegistration,
+  getProfile,
+  loginWithGitHub,
+  loginWithGoogle,
   registerSendOtp,
   verifyOtp,
 } from "@/lib/api";
@@ -21,6 +24,41 @@ const labelDark =
   "text-[10px] font-bold uppercase tracking-widest text-zinc-500 font-poppins";
 const otpBox =
   "h-14 w-12 rounded-sm border border-[#474747] bg-[#1c1b1d] text-center text-lg text-white outline-none focus:border-white font-poppins";
+const GOOGLE_CLIENT_ID = "897351990833-qhbkkacr92qk2jal85i16419cccde5cv.apps.googleusercontent.com";
+const GOOGLE_REGISTER_STATE_KEY = "google_oauth_state_register";
+
+function buildGoogleOAuthUrl(redirectUri: string, state: string) {
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "token",
+    scope: "openid email profile",
+    include_granted_scopes: "true",
+    prompt: "consent",
+    state,
+  });
+
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+
+function GoogleIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
+      <path fill="#EA4335" d="M12 10.2v3.95h5.53c-.24 1.24-1.35 3.63-5.53 3.63-3.33 0-6.05-2.76-6.05-6.16S8.67 5.47 12 5.47c1.9 0 3.17.81 3.9 1.5l2.65-2.55C16.84 3.06 14.68 2 12 2 6.48 2 2 6.48 2 12s4.48 10 10 10c5.76 0 9.58-4.05 9.58-9.76 0-.66-.07-1.16-.15-1.64H12Z" />
+      <path fill="#FBBC05" d="M3.66 7.16 6.7 9.38C7.52 7.36 9.58 5.47 12 5.47c1.9 0 3.17.81 3.9 1.5l2.65-2.55C16.84 3.06 14.68 2 12 2 8.1 2 4.77 4.27 3.66 7.16Z" />
+      <path fill="#34A853" d="M12 22c2.64 0 4.86-.87 6.48-2.38l-3.01-2.46c-.81.56-1.9.95-3.47.95-4.17 0-5.28-2.39-5.53-3.62H3.02C4.34 19.57 7.66 22 12 22Z" />
+      <path fill="#4285F4" d="M21.58 12.24c0-.66-.07-1.16-.15-1.64H12v3.95h5.53c-.25 1.24-1.36 3.63-5.53 3.63v3.84c5.76 0 9.58-4.05 9.58-9.78Z" />
+    </svg>
+  );
+}
+
+function GitHubIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="currentColor">
+      <path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.54 2.87 8.39 6.84 9.75.5.09.68-.22.68-.48 0-.24-.01-.87-.01-1.7-2.78.62-3.37-1.38-3.37-1.38-.45-1.17-1.1-1.48-1.1-1.48-.9-.63.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.1.63-1.35-2.22-.26-4.56-1.13-4.56-5.02 0-1.11.38-2.02 1.01-2.73-.1-.26-.44-1.31.1-2.73 0 0 .82-.27 2.7 1.04a9.1 9.1 0 0 1 4.92 0c1.88-1.31 2.7-1.04 2.7-1.04.54 1.42.2 2.47.1 2.73.63.71 1.01 1.62 1.01 2.73 0 3.9-2.35 4.76-4.58 5.01.36.32.68.95.68 1.92 0 1.39-.01 2.51-.01 2.85 0 .26.18.58.69.48A10.3 10.3 0 0 0 22 12.26C22 6.58 17.52 2 12 2Z" />
+    </svg>
+  );
+}
 
 function StepDots({
   step,
@@ -58,11 +96,29 @@ export default function RegisterPage() {
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
   const [subscribeMarketing, setSubscribeMarketing] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [socialLoading, setSocialLoading] = useState<"google" | "github" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [resendSecs, setResendSecs] = useState(0);
   const [profileTtlSecs, setProfileTtlSecs] = useState(0);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
+
+  async function finalizeSession(
+    user: NonNullable<Awaited<ReturnType<typeof completeRegistration>>["user"]>,
+    tokens: { accessToken: string; refreshToken: string; expiresIn: number }
+  ) {
+    setAuthTokenStorage(tokens.accessToken);
+    setRefreshTokenCookie(tokens.refreshToken);
+
+    try {
+      const profile = await getProfile(tokens.accessToken, user);
+      setSession(profile, tokens);
+    } catch {
+      setSession(user, tokens);
+    }
+
+    router.push("/dashboard");
+  }
 
   useEffect(() => {
     if (resendSecs <= 0) return;
@@ -86,6 +142,45 @@ export default function RegisterPage() {
     };
   }, [profileImagePreview]);
 
+  useEffect(() => {
+    const hash = window.location.hash.startsWith("#")
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+    if (!hash) return;
+
+    const hashParams = new URLSearchParams(hash);
+    const accessToken = hashParams.get("access_token");
+    const returnedState = hashParams.get("state");
+    if (!accessToken) return;
+
+    const expectedState = window.sessionStorage.getItem(GOOGLE_REGISTER_STATE_KEY);
+    window.sessionStorage.removeItem(GOOGLE_REGISTER_STATE_KEY);
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+
+    if (!expectedState || !returnedState || expectedState !== returnedState) {
+      setError("Google sign-up state check failed. Please try again.");
+      return;
+    }
+
+    setSocialLoading("google");
+    void (async () => {
+      const result = await loginWithGoogle(accessToken);
+      setSocialLoading(null);
+
+      if (result.error || !result.accessToken || !result.user) {
+        setFieldErrors(result.fieldErrors ?? {});
+        setError(result.error ?? "Google sign-up failed.");
+        return;
+      }
+
+      await finalizeSession(result.user, {
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        expiresIn: result.expiresIn,
+      });
+    })();
+  }, [router, setSession]);
+
   async function onEmail(e: React.FormEvent) {
     e.preventDefault();
     setFieldErrors({});
@@ -102,6 +197,127 @@ export default function RegisterPage() {
     setVerificationId(r.verificationId ?? "");
     setResendSecs(45);
     setStep("otp");
+  }
+
+  function onGoogleCreate() {
+    setFieldErrors({});
+    setError(null);
+    setSocialLoading("google");
+
+    const state =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    window.sessionStorage.setItem(GOOGLE_REGISTER_STATE_KEY, state);
+
+    const redirectUri = `${window.location.origin}/register`;
+    window.location.assign(buildGoogleOAuthUrl(redirectUri, state));
+  }
+
+  async function onGitHubCreate() {
+    setFieldErrors({});
+    setError(null);
+    setSocialLoading("github");
+
+    const githubClientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
+    if (!githubClientId) {
+      setSocialLoading(null);
+      setError("GitHub sign-up is not configured yet. Set NEXT_PUBLIC_GITHUB_CLIENT_ID.");
+      return;
+    }
+
+    let githubWindow: Window | null = null;
+    try {
+      githubWindow = window.open("", "_blank");
+      const deviceResponse = await fetch("/api/auth/github/device", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ type: "start" }),
+      });
+
+      if (!deviceResponse.ok) {
+        throw new Error("Unable to start GitHub sign-up.");
+      }
+
+      const deviceData: {
+        device_code: string;
+        user_code: string;
+        verification_uri: string;
+        interval?: number;
+        expires_in?: number;
+        error?: string;
+      } = await deviceResponse.json();
+
+      if (deviceData.error) {
+        throw new Error(deviceData.error);
+      }
+
+      if (githubWindow) {
+        githubWindow.location.href = deviceData.verification_uri;
+      } else {
+        window.open(deviceData.verification_uri, "_blank");
+      }
+      setError(`Open GitHub and enter code: ${deviceData.user_code}`);
+
+      let intervalMs = Math.max((deviceData.interval ?? 5) * 1000, 1000);
+      const expiresAt = Date.now() + (deviceData.expires_in ?? 900) * 1000;
+
+      while (Date.now() < expiresAt) {
+        await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
+
+        const tokenResponse = await fetch("/api/auth/github/device", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ type: "token", deviceCode: deviceData.device_code }),
+        });
+
+        const tokenData: {
+          access_token?: string;
+          error?: string;
+          error_description?: string;
+        } = await tokenResponse.json();
+
+        if (!tokenResponse.ok && tokenData.error !== "authorization_pending" && tokenData.error !== "slow_down") {
+          throw new Error(tokenData.error_description || tokenData.error || "GitHub sign-up failed.");
+        }
+
+        if (tokenData.access_token) {
+          const result = await loginWithGitHub(tokenData.access_token);
+          setSocialLoading(null);
+
+          if (result.error || !result.accessToken || !result.user) {
+            setFieldErrors(result.fieldErrors ?? {});
+            setError(result.error ?? "GitHub sign-up failed.");
+            return;
+          }
+
+          await finalizeSession(result.user, {
+            accessToken: result.accessToken,
+            refreshToken: result.refreshToken,
+            expiresIn: result.expiresIn,
+          });
+          return;
+        }
+
+        if (tokenData.error === "authorization_pending") continue;
+        if (tokenData.error === "slow_down") {
+          intervalMs += 5000;
+          continue;
+        }
+
+        throw new Error(tokenData.error_description || tokenData.error || "GitHub sign-up failed.");
+      }
+
+      throw new Error("GitHub sign-up timed out.");
+    } catch (err) {
+      githubWindow?.close();
+      setSocialLoading(null);
+      setError(err instanceof Error ? err.message : "GitHub sign-up failed.");
+    }
   }
 
   async function onVerifyOtp(e: React.FormEvent) {
@@ -175,14 +391,11 @@ export default function RegisterPage() {
       setError(r.error ?? "Could not create account.");
       return;
     }
-    setSession(r.user, {
+    await finalizeSession(r.user, {
       accessToken: r.accessToken,
       refreshToken: r.refreshToken,
       expiresIn: r.expiresIn,
     });
-    setAuthTokenStorage(r.accessToken);
-    setRefreshTokenCookie(r.refreshToken);
-    router.push("/dashboard");
   }
 
   function onOtpChange(i: number, v: string) {
@@ -206,17 +419,20 @@ export default function RegisterPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-12 bg-[#0e0e10] px-6 py-12 text-[#e5e1e4] selection:bg-white selection:text-black font-montserrat ">
-      <div className="flex flex-col items-center gap-2">
-        <Image
-          src="/corerouter-logo.png"
-          alt="CoreRouter"
-          width={48}
-          height={48}
-          priority
-        />
-        <h1 className="text-2xl font-bold tracking-tighter text-white">
-          COREROUTER
-        </h1>
+      <div className="flex items-center justify-center">
+        <Link href="/" className="flex items-center gap-2">
+          <Image
+            src="/corerouter-logo.png"
+            alt="CoreRouter"
+            width={52}
+            height={52}
+            priority
+            className="h-[3.25rem] w-[3.25rem] object-contain"
+          />
+          <span className="font-montserrat text-[22px] font-bold tracking-[0.08em] text-white">
+            COREROUTER
+          </span>
+        </Link>
       </div>
 
       <div
@@ -267,11 +483,44 @@ export default function RegisterPage() {
                 )}
               </button>
             </form>
+            <div className="my-2 flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.3em] text-zinc-300">
+              {/* <span className="h-px flex-1 bg-zinc-200" /> */}
+              {/* <span>or create with</span> */}
+              {/* <span className="h-px flex-1 bg-zinc-200" /> */}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={onGoogleCreate}
+                disabled={socialLoading !== null}
+                className="flex items-center justify-center gap-2 rounded-sm border border-zinc-200 bg-white px-3 py-3 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+              >
+                {socialLoading === "google" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <GoogleIcon className="size-4" />
+                )}
+                <span>Google</span>
+              </button>
+              <button
+                type="button"
+                onClick={onGitHubCreate}
+                disabled={socialLoading !== null}
+                className="flex items-center justify-center gap-2 rounded-sm border border-zinc-200 bg-white px-3 py-3 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+              >
+                {socialLoading === "github" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <GitHubIcon className="size-4" />
+                )}
+                <span>GitHub</span>
+              </button>
+            </div>
             <div className="mt-6 flex items-center justify-between border-t border-zinc-100 pt-6">
-              <span className="text-xs text-zinc-400">Have an account?</span>
+              <span className="whitespace-nowrap text-xs text-zinc-400">Have an account?</span>
               <Link
                 href="/login"
-                className="text-xs font-semibold text-zinc-950 hover:underline"
+                className="whitespace-nowrap text-xs font-semibold text-zinc-950 hover:underline"
               >
                 Sign in
               </Link>

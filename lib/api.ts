@@ -758,6 +758,10 @@ function fallbackMessage(status: number): string {
 }
 
 function loginErrorMessage(status: number, defaultMessage: string): string {
+  const normalized = defaultMessage.toLowerCase();
+  if (normalized.includes("social") || normalized.includes("google") || normalized.includes("github") || normalized.includes("password is null")) {
+    return "This account uses social login. Use Google or GitHub to continue.";
+  }
   if (status === 401) return "Invalid email or password.";
   if (status === 404) return "No account found with this email.";
   if (status === 429) return "Too many login attempts. Please wait before trying again.";
@@ -786,6 +790,14 @@ function registerErrorMessage(status: number, defaultMessage: string): string {
   if (status === 410) return "Session expired. Please restart registration.";
   if (status === 429) return "Too many requests. Please slow down.";
   if (status === 500) return "Registration failed. Please try again.";
+  return defaultMessage;
+}
+
+function forgotPasswordErrorMessage(status: number, defaultMessage: string): string {
+  if (status === 404) return "No account found with this email.";
+  if (status === 410) return "Session expired. Please restart forgot password.";
+  if (status === 429) return "Too many attempts. Please wait before retrying.";
+  if (status === 500) return "Password reset failed. Please try again.";
   return defaultMessage;
 }
 
@@ -2512,6 +2524,66 @@ export async function loginWithPassword(
   }
 }
 
+export async function loginWithGoogle(accessToken: string): Promise<{ user: MockUser | null; accessToken: string; refreshToken: string; expiresIn: number; error?: string; status?: number; fieldErrors?: Record<string, string> }> {
+  try {
+    const data = await postAuth<{ accessToken: string }, AuthTokens>(
+      "/google/login",
+      { accessToken }
+    );
+    return {
+      user: {
+        ...(userFromAccessToken(data.accessToken) ?? buildSessionUser("google-user@example.com")),
+      },
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      expiresIn: data.expiresIn,
+    };
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      return {
+        user: null,
+        accessToken: "",
+        refreshToken: "",
+        expiresIn: 0,
+        error: loginErrorMessage(error.status, error.message),
+        status: error.status,
+        fieldErrors: error.fieldErrors,
+      };
+    }
+    return { user: null, accessToken: "", refreshToken: "", expiresIn: 0, error: "Google login failed. Please try again." };
+  }
+}
+
+export async function loginWithGitHub(accessToken: string): Promise<{ user: MockUser | null; accessToken: string; refreshToken: string; expiresIn: number; error?: string; status?: number; fieldErrors?: Record<string, string> }> {
+  try {
+    const data = await postAuth<{ accessToken: string }, AuthTokens>(
+      "/github/login",
+      { accessToken }
+    );
+    return {
+      user: {
+        ...(userFromAccessToken(data.accessToken) ?? buildSessionUser("github-user@example.com")),
+      },
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      expiresIn: data.expiresIn,
+    };
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      return {
+        user: null,
+        accessToken: "",
+        refreshToken: "",
+        expiresIn: 0,
+        error: loginErrorMessage(error.status, error.message),
+        status: error.status,
+        fieldErrors: error.fieldErrors,
+      };
+    }
+    return { user: null, accessToken: "", refreshToken: "", expiresIn: 0, error: "GitHub login failed. Please try again." };
+  }
+}
+
 export async function registerSendOtp(
   email: string
 ): Promise<{ ok: boolean; verificationId?: string; error?: string; status?: number; fieldErrors?: Record<string, string> }> {
@@ -2605,6 +2677,82 @@ export async function completeRegistration(body: {
       expiresIn: 0,
       error: "Registration failed. Please try again.",
     };
+  }
+}
+
+export async function forgotPasswordRequestOtp(
+  email: string
+): Promise<{ ok: boolean; verificationId?: string; error?: string; status?: number; fieldErrors?: Record<string, string> }> {
+  try {
+    const data = await postAuth<{ email: string }, RequestOtpResponse>("/forgot-password/request-otp", {
+      email: email.trim(),
+    });
+    return { ok: true, verificationId: data.verificationId };
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      return {
+        ok: false,
+        error: forgotPasswordErrorMessage(error.status, error.message),
+        status: error.status,
+        fieldErrors: error.fieldErrors,
+      };
+    }
+    return { ok: false, error: "Could not send reset code." };
+  }
+}
+
+export async function forgotPasswordVerifyOtp(
+  verificationId: string,
+  otp: string
+): Promise<{ ok: boolean; data?: VerifyOtpResponse; error?: string; status?: number; fieldErrors?: Record<string, string> }> {
+  try {
+    const data = await postAuth<{ verificationId: string; otp: string }, VerifyOtpResponse>(
+      "/forgot-password/verify-otp",
+      {
+        verificationId,
+        otp,
+      }
+    );
+    return { ok: true, data };
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      return {
+        ok: false,
+        error: verifyOtpErrorMessage(error.status, error.message),
+        status: error.status,
+        fieldErrors: error.fieldErrors,
+      };
+    }
+    return { ok: false, error: "Invalid code." };
+  }
+}
+
+export async function forgotPasswordReset(body: {
+  verificationId: string;
+  newPassword: string;
+  confirmPassword: string;
+}): Promise<{ ok: boolean; error?: string; status?: number; fieldErrors?: Record<string, string> }> {
+  try {
+    await postAuth<
+      { verificationId: string; newPassword: string; confirmPassword: string },
+      null
+    >("/forgot-password/reset", {
+      verificationId: body.verificationId,
+      newPassword: body.newPassword,
+      confirmPassword: body.confirmPassword,
+    });
+
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      return {
+        ok: false,
+        error: forgotPasswordErrorMessage(error.status, error.message),
+        status: error.status,
+        fieldErrors: error.fieldErrors,
+      };
+    }
+    return { ok: false, error: "Could not reset password." };
   }
 }
 
