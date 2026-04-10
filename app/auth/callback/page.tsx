@@ -4,84 +4,77 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { getProfile, loginWithGoogleCode } from "@/lib/api";
-import { setAuthTokenStorage, setRefreshTokenCookie } from "@/lib/auth";
+import {
+  setAuthTokenStorage,
+  setRefreshTokenCookie,
+  userFromAccessToken,
+} from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
-
-const GOOGLE_OAUTH_STATE_KEY = "google_oauth_state";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const setSession = useAuthStore((s) => s.setSession);
-  const [message, setMessage] = useState("Completing Google sign in...");
+  const [message, setMessage] = useState("Completing sign in...");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let canceled = false;
 
-    const run = async () => {
-      const code = searchParams.get("code");
-      const state = searchParams.get("state");
-      const googleError = searchParams.get("error");
+    const run = () => {
+      const status = searchParams.get("status");
+      const provider = searchParams.get("provider");
+      const accessToken = searchParams.get("accessToken");
+      const refreshToken = searchParams.get("refreshToken");
+      const expiresInRaw = searchParams.get("expiresIn");
+      const responseMessage = searchParams.get("message");
 
-      if (googleError) {
-        setError(`Google returned an error: ${googleError}`);
-        return;
-      }
+      if (status === "success") {
+        if (!accessToken || !refreshToken) {
+          setError("Missing authentication tokens in callback response.");
+          window.setTimeout(() => {
+            if (!canceled) {
+              router.replace("/login");
+            }
+          }, 1500);
+          return;
+        }
 
-      if (!code) {
-        setError("Missing authorization code.");
-        return;
-      }
+        const parsedExpiresIn = Number.parseInt(expiresInRaw ?? "", 10);
+        const expiresIn = Number.isFinite(parsedExpiresIn) && parsedExpiresIn > 0
+          ? parsedExpiresIn
+          : 3600;
 
-      const expectedState = window.sessionStorage.getItem(GOOGLE_OAUTH_STATE_KEY);
-      window.sessionStorage.removeItem(GOOGLE_OAUTH_STATE_KEY);
+        setAuthTokenStorage(accessToken);
+        setRefreshTokenCookie(refreshToken);
 
-      if (!expectedState || !state || expectedState !== state) {
-        setError("Google login state check failed. Please try again.");
-        return;
-      }
-
-      const redirectUri = `${window.location.origin}/auth/callback`;
-      const result = await loginWithGoogleCode(code, redirectUri);
-
-      if (canceled) return;
-
-      if (result.error || !result.accessToken || !result.refreshToken || !result.user) {
-        setError(result.error ?? "Google login failed.");
-        return;
-      }
-
-      setAuthTokenStorage(result.accessToken);
-      setRefreshTokenCookie(result.refreshToken);
-
-      try {
-        const profile = await getProfile(result.accessToken, result.user);
-        if (!canceled) {
-          setSession(profile, {
-            accessToken: result.accessToken,
-            refreshToken: result.refreshToken,
-            expiresIn: result.expiresIn,
+        const user = userFromAccessToken(accessToken);
+        if (user) {
+          setSession(user, {
+            accessToken,
+            refreshToken,
+            expiresIn,
           });
         }
-      } catch {
+
         if (!canceled) {
-          setSession(result.user, {
-            accessToken: result.accessToken,
-            refreshToken: result.refreshToken,
-            expiresIn: result.expiresIn,
-          });
+          const providerText = provider ? `${provider} ` : "";
+          setMessage(`${providerText}login successful. Redirecting to dashboard...`);
+          router.replace("/dashboard");
         }
+        return;
       }
 
-      if (!canceled) {
-        setMessage("Login successful. Redirecting to dashboard...");
-        router.replace("/dashboard");
-      }
+      const fallbackError = "Authentication failed. Please try signing in again.";
+      setError(responseMessage || fallbackError);
+      window.setTimeout(() => {
+        if (!canceled) {
+          router.replace("/login");
+        }
+      }, 1500);
     };
 
-    void run();
+    run();
 
     return () => {
       canceled = true;

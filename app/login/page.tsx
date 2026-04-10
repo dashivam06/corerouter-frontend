@@ -127,7 +127,7 @@ export default function LoginPage() {
     setError(null);
     setSocialLoading("google");
 
-    window.location.assign("https://api.corerouter.me/oauth2/authorization/google");
+    window.location.href = "https://api.corerouter.me/oauth2/authorization/google";
   }
 
   function onGitHubSignIn() {
