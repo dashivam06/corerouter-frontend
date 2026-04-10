@@ -12,7 +12,7 @@ type DeviceTokenRequest = {
 type DeviceRequest = DeviceStartRequest | DeviceTokenRequest;
 
 function getClientId() {
-  return process.env.GITHUB_CLIENT_ID || process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID || "";
+  return process.env.GITHUB_CLIENT_ID || "";
 }
 
 export async function POST(request: Request) {

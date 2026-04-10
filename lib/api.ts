@@ -2524,11 +2524,11 @@ export async function loginWithPassword(
   }
 }
 
-export async function loginWithGoogle(accessToken: string): Promise<{ user: MockUser | null; accessToken: string; refreshToken: string; expiresIn: number; error?: string; status?: number; fieldErrors?: Record<string, string> }> {
+export async function loginWithGoogleCode(code: string, redirectUri?: string): Promise<{ user: MockUser | null; accessToken: string; refreshToken: string; expiresIn: number; error?: string; status?: number; fieldErrors?: Record<string, string> }> {
   try {
-    const data = await postAuth<{ accessToken: string }, AuthTokens>(
+    const data = await postAuth<{ code: string; redirectUri?: string }, AuthTokens>(
       "/google/login",
-      { accessToken }
+      { code, redirectUri }
     );
     return {
       user: {

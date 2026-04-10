@@ -9,7 +9,6 @@ import {
   completeRegistration,
   getProfile,
   loginWithGitHub,
-  loginWithGoogle,
   registerSendOtp,
   verifyOtp,
 } from "@/lib/api";
@@ -25,13 +24,13 @@ const labelDark =
 const otpBox =
   "h-14 w-12 rounded-sm border border-[#474747] bg-[#1c1b1d] text-center text-lg text-white outline-none focus:border-white font-poppins";
 const GOOGLE_CLIENT_ID = "897351990833-qhbkkacr92qk2jal85i16419cccde5cv.apps.googleusercontent.com";
-const GOOGLE_REGISTER_STATE_KEY = "google_oauth_state_register";
+const GOOGLE_OAUTH_STATE_KEY = "google_oauth_state";
 
 function buildGoogleOAuthUrl(redirectUri: string, state: string) {
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
-    response_type: "token",
+    response_type: "code",
     scope: "openid email profile",
     include_granted_scopes: "true",
     prompt: "consent",
@@ -142,45 +141,6 @@ export default function RegisterPage() {
     };
   }, [profileImagePreview]);
 
-  useEffect(() => {
-    const hash = window.location.hash.startsWith("#")
-      ? window.location.hash.slice(1)
-      : window.location.hash;
-    if (!hash) return;
-
-    const hashParams = new URLSearchParams(hash);
-    const accessToken = hashParams.get("access_token");
-    const returnedState = hashParams.get("state");
-    if (!accessToken) return;
-
-    const expectedState = window.sessionStorage.getItem(GOOGLE_REGISTER_STATE_KEY);
-    window.sessionStorage.removeItem(GOOGLE_REGISTER_STATE_KEY);
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
-
-    if (!expectedState || !returnedState || expectedState !== returnedState) {
-      setError("Google sign-up state check failed. Please try again.");
-      return;
-    }
-
-    setSocialLoading("google");
-    void (async () => {
-      const result = await loginWithGoogle(accessToken);
-      setSocialLoading(null);
-
-      if (result.error || !result.accessToken || !result.user) {
-        setFieldErrors(result.fieldErrors ?? {});
-        setError(result.error ?? "Google sign-up failed.");
-        return;
-      }
-
-      await finalizeSession(result.user, {
-        accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
-        expiresIn: result.expiresIn,
-      });
-    })();
-  }, [router, setSession]);
-
   async function onEmail(e: React.FormEvent) {
     e.preventDefault();
     setFieldErrors({});
@@ -208,9 +168,9 @@ export default function RegisterPage() {
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    window.sessionStorage.setItem(GOOGLE_REGISTER_STATE_KEY, state);
+    window.sessionStorage.setItem(GOOGLE_OAUTH_STATE_KEY, state);
 
-    const redirectUri = `${window.location.origin}/register`;
+    const redirectUri = `${window.location.origin}/auth/callback`;
     window.location.assign(buildGoogleOAuthUrl(redirectUri, state));
   }
 
@@ -218,13 +178,6 @@ export default function RegisterPage() {
     setFieldErrors({});
     setError(null);
     setSocialLoading("github");
-
-    const githubClientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
-    if (!githubClientId) {
-      setSocialLoading(null);
-      setError("GitHub sign-up is not configured yet. Set NEXT_PUBLIC_GITHUB_CLIENT_ID.");
-      return;
-    }
 
     let githubWindow: Window | null = null;
     try {

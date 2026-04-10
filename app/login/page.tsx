@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
-import { getProfile, loginSendEmail, loginWithGitHub, loginWithGoogle, loginWithPassword } from "@/lib/api";
+import { getProfile, loginSendEmail, loginWithGitHub, loginWithPassword } from "@/lib/api";
 import { setAuthTokenStorage, setRefreshTokenCookie } from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -13,7 +13,7 @@ const surfaceLowest = "bg-[#0e0e10]";
 const labelClass =
   "text-[10px] font-bold uppercase tracking-widest text-zinc-400 font-montserrat ";
 const GOOGLE_CLIENT_ID = "897351990833-qhbkkacr92qk2jal85i16419cccde5cv.apps.googleusercontent.com";
-const GOOGLE_LOGIN_STATE_KEY = "google_oauth_state_login";
+const GOOGLE_OAUTH_STATE_KEY = "google_oauth_state";
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -23,7 +23,7 @@ function buildGoogleOAuthUrl(redirectUri: string, state: string) {
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
-    response_type: "token",
+    response_type: "code",
     scope: "openid email profile",
     include_granted_scopes: "true",
     prompt: "consent",
@@ -99,45 +99,6 @@ export default function LoginPage() {
   }, [cooldownSecs]);
 
   useEffect(() => {
-    const hash = window.location.hash.startsWith("#")
-      ? window.location.hash.slice(1)
-      : window.location.hash;
-    if (!hash) return;
-
-    const hashParams = new URLSearchParams(hash);
-    const accessToken = hashParams.get("access_token");
-    const returnedState = hashParams.get("state");
-    if (!accessToken) return;
-
-    const expectedState = window.sessionStorage.getItem(GOOGLE_LOGIN_STATE_KEY);
-    window.sessionStorage.removeItem(GOOGLE_LOGIN_STATE_KEY);
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
-
-    if (!expectedState || !returnedState || expectedState !== returnedState) {
-      setError("Google login state check failed. Please try again.");
-      return;
-    }
-
-    setSocialLoading("google");
-    void (async () => {
-      const result = await loginWithGoogle(accessToken);
-      setSocialLoading(null);
-
-      if (result.error || !result.accessToken || !result.user) {
-        setFieldErrors(result.fieldErrors ?? {});
-        setError(result.error ?? "Google login failed.");
-        return;
-      }
-
-      await finalizeSession(result.user, {
-        accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
-        expiresIn: result.expiresIn,
-      });
-    })();
-  }, [router, setSession]);
-
-  useEffect(() => {
     if (!showAuthNotice) return;
     const timer = window.setTimeout(() => {
       setShowAuthNotice(false);
@@ -190,9 +151,9 @@ export default function LoginPage() {
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    window.sessionStorage.setItem(GOOGLE_LOGIN_STATE_KEY, state);
+    window.sessionStorage.setItem(GOOGLE_OAUTH_STATE_KEY, state);
 
-    const redirectUri = `${window.location.origin}/login`;
+    const redirectUri = `${window.location.origin}/auth/callback`;
     window.location.assign(buildGoogleOAuthUrl(redirectUri, state));
   }
 
@@ -200,13 +161,6 @@ export default function LoginPage() {
     setFieldErrors({});
     setError(null);
     setSocialLoading("github");
-
-    const githubClientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
-    if (!githubClientId) {
-      setSocialLoading(null);
-      setError("GitHub login is not configured yet. Set NEXT_PUBLIC_GITHUB_CLIENT_ID.");
-      return;
-    }
 
     let githubWindow: Window | null = null;
     try {

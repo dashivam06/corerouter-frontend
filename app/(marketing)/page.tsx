@@ -5,14 +5,25 @@ import type { MockBillingConfig } from "@/lib/mock-data";
 import { StatusBadge } from "@/components/shared/status-badge";
 
 async function pricingRows() {
-  const models = await fetchModels();
+  let models: ModelResponse[] = [];
+  try {
+    models = await fetchModels();
+  } catch {
+    return [];
+  }
+
   const rows: {
     name: string;
     type: string;
     line: string;
   }[] = [];
   for (const m of models.slice(0, 4)) {
-    const b = (await fetchBillingForModel(m.modelId)) as MockBillingConfig | null;
+    let b: MockBillingConfig | null = null;
+    try {
+      b = (await fetchBillingForModel(m.modelId)) as MockBillingConfig | null;
+    } catch {
+      b = null;
+    }
     let line = "—";
     if (b?.pricing_type === "PER_TOKEN") {
       const in_ = b.pricing_metadata.rates?.INPUT_TOKENS_PER_1K ?? 0;
@@ -31,8 +42,12 @@ async function pricingRows() {
 }
 
 async function topModels() {
-  const models = await fetchModels();
-  return models.slice(0, 6);
+  try {
+    const models = await fetchModels();
+    return models.slice(0, 6);
+  } catch {
+    return [];
+  }
 }
 
 export default async function LandingPage() {
