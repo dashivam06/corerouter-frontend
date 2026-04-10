@@ -24,6 +24,9 @@ const labelDark =
 const otpBox =
   "h-14 w-12 rounded-sm border border-[#474747] bg-[#1c1b1d] text-center text-lg text-white outline-none focus:border-white font-poppins";
 const GOOGLE_CLIENT_ID = "897351990833-qhbkkacr92qk2jal85i16419cccde5cv.apps.googleusercontent.com";
+const GOOGLE_REDIRECT_URI =
+  process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI ||
+  "https://api.corerouter.me/login/oauth2/code/google";
 const GOOGLE_OAUTH_STATE_KEY = "google_oauth_state";
 
 function buildGoogleOAuthUrl(redirectUri: string, state: string) {
@@ -170,8 +173,7 @@ export default function RegisterPage() {
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     window.sessionStorage.setItem(GOOGLE_OAUTH_STATE_KEY, state);
 
-    const redirectUri = `${window.location.origin}/auth/callback`;
-    window.location.assign(buildGoogleOAuthUrl(redirectUri, state));
+    window.location.assign(buildGoogleOAuthUrl(GOOGLE_REDIRECT_URI, state));
   }
 
   async function onGitHubCreate() {
