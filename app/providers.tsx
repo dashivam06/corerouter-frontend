@@ -22,14 +22,14 @@ function mergeUsers(
   fallbackUser = getAuthProfileStorage(),
   profile?: { fullName: string; email: string; profileImage: string | null }
 ) {
-  const user = baseUser || fallbackUser;
+  const user = fallbackUser || baseUser;
   if (!user) return null;
 
   return {
     ...user,
-    full_name: profile?.fullName?.trim() || user.full_name,
-    email: profile?.email || user.email,
-    profile_image: profile?.profileImage ?? user.profile_image,
+    full_name: profile?.fullName?.trim() || fallbackUser?.full_name || user.full_name,
+    email: profile?.email || fallbackUser?.email || user.email,
+    profile_image: profile?.profileImage ?? fallbackUser?.profile_image ?? user.profile_image,
     last_login: new Date().toISOString(),
   };
 }

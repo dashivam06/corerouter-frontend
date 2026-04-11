@@ -213,6 +213,30 @@ export type BillingConfigUpdateBody = {
   pricingMetadata?: string;
 };
 
+export type DailySpendingPoint = {
+  date: string;
+  value: number;
+};
+
+export type UserDashboardInsightsResponse = {
+  currentBalance: number;
+  activeApiKeys: number;
+  tasksThisMonth: number;
+  todaysConsumption: number;
+};
+
+export type UserSpendingResponse = {
+  filterPeriod: string;
+  fromDate: string;
+  toDate: string;
+  totalSpending: number;
+  dailyTrend: DailySpendingPoint[];
+};
+
+export type UserUsageByModelTypeResponse = {
+  usageByModelTypeCounts: Record<"LLM" | "OCR" | "OTHER", number>;
+};
+
 export type BillingInsightsResponse = {
   totalBalance: number;
   thisMonthVolume: number;
@@ -465,6 +489,16 @@ export type UserBillingInsightsResponse = {
   currentBalance: number;
   creditsUsedThisMonth: number;
   creditsUsedChangeFromLastMonthPercent: number;
+  activeApiKeys: number;
+  tasksThisMonth: number;
+  todaysConsumption: number;
+  currentPeriod: string;
+  spendingInSelectedPeriod: number;
+  totalRequestsCurrentPeriod: number;
+  avgCostPerRequest: number;
+  spendingPeriodStart: string;
+  spendingPeriodEnd: string;
+  usageByModelTypeCounts: Record<"LLM" | "OCR" | "OTHER", number>;
 };
 
 export type UserUsageInsightsResponse = {
@@ -1623,6 +1657,71 @@ async function requestBilling<TRes>(
       403,
       parsed?.errors ?? []
     );
+  }
+
+  const parsed = await parseResponse<TRes>(response);
+  if (!parsed) {
+    if (!response.ok) {
+      throw new ApiRequestError(fallbackMessage(response.status), response.status);
+    }
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  if (parsed.success) {
+    return parsed.data as TRes;
+  }
+
+  throw new ApiRequestError(
+    parsed.message || fallbackMessage(parsed.status || response.status),
+    parsed.status || response.status,
+    parsed.errors ?? []
+  );
+}
+
+async function requestDashboard<TRes>(path: string): Promise<TRes> {
+  const resolvedAccessToken = getAuthTokenStorage() || undefined;
+
+  if (!resolvedAccessToken) {
+    clearAllAuthClientTokens();
+    redirectToLogin();
+    throw new ApiRequestError("Session expired. Please log in again.", 401);
+  }
+
+  const doFetch = async (token: string) => {
+    return fetch(`${API_BASE_URL}/api/v1/dashboard${path}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  };
+
+  let response: Response;
+  try {
+    response = await doFetch(resolvedAccessToken);
+  } catch {
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  }
+
+  if (response.status === 401) {
+    const refreshToken = getRefreshTokenCookie();
+    if (!refreshToken) {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
+
+    try {
+      const nextTokens = await refreshAuthToken(refreshToken);
+      setAuthTokenStorage(nextTokens.accessToken);
+      setRefreshTokenCookie(nextTokens.refreshToken);
+      response = await doFetch(nextTokens.accessToken);
+    } catch {
+      clearAllAuthClientTokens();
+      redirectToLogin();
+      throw new ApiRequestError("Session expired. Please log in again.", 401);
+    }
   }
 
   const parsed = await parseResponse<TRes>(response);
@@ -2964,8 +3063,91 @@ export async function fetchBillingForModel(modelId: number) {
   return mockRequest(mockBilling.find((b) => b.model_id === modelId) ?? null);
 }
 
+export async function fetchDashboardInsights(): Promise<UserDashboardInsightsResponse> {
+  return requestDashboard<UserDashboardInsightsResponse>("/insights");
+}
+
+export async function fetchDashboardSpending(params?: {
+  dateFilter?: "today" | "week" | "month" | "3m" | "6m" | "year" | "all";
+  fromDate?: string;
+  toDate?: string;
+}): Promise<UserSpendingResponse> {
+  const query = new URLSearchParams();
+  const hasCustomRange = Boolean(params?.fromDate && params?.toDate);
+
+  if (hasCustomRange) {
+    query.set("fromDate", String(params?.fromDate));
+    query.set("toDate", String(params?.toDate));
+  } else {
+    query.set("dateFilter", params?.dateFilter ?? "month");
+  }
+
+  const suffix = query.toString();
+  return requestDashboard<UserSpendingResponse>(`/spending${suffix ? `?${suffix}` : ""}`);
+}
+
+export async function fetchDashboardUsageByModelType(): Promise<UserUsageByModelTypeResponse> {
+  return requestDashboard<UserUsageByModelTypeResponse>("/usage-by-model-type");
+}
+
 export async function getUserBillingInsights(): Promise<UserBillingInsightsResponse> {
   return requestBilling<UserBillingInsightsResponse>("GET", "/insights");
+}
+
+export async function fetchBalanceHistory(_params?: { period?: string }): Promise<{
+  fromDate: string;
+  toDate: string;
+  balanceHistory: { date: string; value: number }[];
+  totalTopUp: number;
+}> {
+  const balanceHistory = getBalanceHistory(mockUser.balance);
+  const fromDate = balanceHistory[0]?.date ?? new Date().toISOString().slice(0, 10);
+  const toDate = balanceHistory[balanceHistory.length - 1]?.date ?? fromDate;
+
+  return {
+    fromDate,
+    toDate,
+    balanceHistory: balanceHistory.map((point) => ({
+      date: point.date,
+      value: point.balance,
+    })),
+    totalTopUp: mockUser.balance,
+  };
+}
+
+export async function fetchTransactionHistory(_params?: {
+  page?: number;
+  size?: number;
+  period?: string;
+  type?: string;
+  status?: string;
+  search?: string;
+}): Promise<PaginatedResponse<TransactionResponse>> {
+  const transactions = await fetchTransactions();
+  const mapped = transactions.map(
+    (transaction): TransactionResponse => ({
+      transactionId: transaction.transaction_id,
+      userId: transaction.user_id,
+      userName: mockUser.full_name,
+      amount: transaction.amount,
+      type: transaction.type,
+      status: transaction.status,
+      esewaTransactionId: transaction.esewa_transaction_id ?? "",
+      relatedTaskId: transaction.product_code,
+      completedAt: transaction.completed_at,
+      createdAt: transaction.created_at,
+    })
+  );
+
+  return {
+    content: mapped,
+    totalElements: mapped.length,
+    totalPages: 1,
+    number: 0,
+    size: mapped.length,
+    first: true,
+    last: true,
+  };
 }
 
 export async function getUserUsageInsights(): Promise<UserUsageInsightsResponse> {

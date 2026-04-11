@@ -22,19 +22,42 @@ import { useAuthStore } from "@/stores/auth-store";
 import {
   type ActivityAction,
   fetchActivity,
-  fetchApiKeys,
-  fetchTransactions,
-  getDashboardPie,
-  getSpendSeries,
+  fetchDashboardInsights,
+  fetchDashboardSpending,
+  fetchDashboardUsageByModelType,
 } from "@/lib/api";
 import { formatNPR } from "@/lib/formatters";
 import { StatCard } from "@/components/cards/stat-card";
 import { QuickActionCard } from "@/components/cards/quick-action-card";
 import { SpendLineChart } from "@/components/charts/spend-line-chart";
-import { ModelTypePie, ModelTypePieLegend } from "@/components/charts/model-type-pie";
-import { mockTasks } from "@/lib/mock-data";
+import { ModelTypePie } from "@/components/charts/model-type-pie";
 
 type SpendRange = "week" | "month" | "6mos" | "year";
+
+function toDashboardDateFilter(range: SpendRange) {
+  if (range === "week") return "week";
+  if (range === "month") return "month";
+  if (range === "6mos") return "6m";
+  return "year";
+}
+
+function parseUtcDate(value: string): Date {
+  const normalized = value.includes("T") ? value : `${value}T00:00:00Z`;
+  return new Date(normalized);
+}
+
+function generateDateRange(fromDate: string, toDate: string) {
+  const dates: string[] = [];
+  const current = parseUtcDate(fromDate);
+  const end = parseUtcDate(toDate);
+
+  while (current <= end) {
+    dates.push(current.toISOString().slice(0, 10));
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+
+  return dates;
+}
 
 function parseActivityDate(value: string): Date {
   const date = new Date(value);
@@ -85,56 +108,61 @@ function getActivityIcon(action: ActivityAction) {
 
 export default function DashboardHomePage() {
   const user = useAuthStore((s) => s.user);
-  const first = user?.full_name?.split(/\s+/)[0] ?? "there";
+  const displayName = user?.full_name?.trim().split(/\s+/)[0] || user?.email?.split("@")[0] || "there";
   const hour = new Date().getHours();
   const greet =
     hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
-  const { data: keys } = useQuery({ queryKey: ["api-keys"], queryFn: fetchApiKeys });
-  const { data: activity } = useQuery({ queryKey: ["activity"], queryFn: fetchActivity });
-  const { data: transactions } = useQuery({
-    queryKey: ["transactions"],
-    queryFn: fetchTransactions,
+  const insightsQuery = useQuery({
+    queryKey: ["dashboard-insights"],
+    queryFn: fetchDashboardInsights,
   });
+  const { data: activity } = useQuery({ queryKey: ["activity"], queryFn: fetchActivity });
 
   const [spendRange, setSpendRange] = useState<SpendRange>("month");
-  const series = useMemo(() => getSpendSeries(spendRange), [spendRange]);
-  const chartData = useMemo(
-    () =>
-      series.map((value, i) => ({
-        label:
-          spendRange === "week"
-            ? ["M", "T", "W", "T", "F", "S", "S"][i] ?? String(i)
-            : spendRange === "year"
-              ? String(i + 1)
-              : String(i + 1),
-        value,
-      })),
-    [series, spendRange]
-  );
+  const spendingQuery = useQuery({
+    queryKey: ["dashboard-spending", spendRange],
+    queryFn: () => fetchDashboardSpending({ dateFilter: toDashboardDateFilter(spendRange) }),
+  });
+  const usageQuery = useQuery({
+    queryKey: ["dashboard-usage-by-model-type"],
+    queryFn: fetchDashboardUsageByModelType,
+  });
 
-  const activeKeys = keys?.filter((k) => k.status === "ACTIVE").length ?? 0;
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  const tasksThisMonth = mockTasks.filter(
-    (t) => new Date(t.created_at) >= monthStart
-  ).length;
-  const pieData = getDashboardPie();
+  const chartData = useMemo(() => {
+    const spending = spendingQuery.data;
+    if (!spending) return [];
 
-  const transactionsList = transactions ?? [];
+    const days = generateDateRange(spending.fromDate, spending.toDate);
+    const trendMap = new Map(spending.dailyTrend.map((point) => [point.date, point.value]));
 
-  const consumptionToday = mockTasks
-    .filter((t) => new Date(t.created_at).getTime() >= todayStart.getTime())
-    .reduce((a, t) => a + (t.total_cost ?? 0), 0);
+    return days.map((date) => ({
+      label: format(parseUtcDate(date), "MMM d"),
+      value: trendMap.get(date) ?? 0,
+    }));
+  }, [spendingQuery.data]);
+
+  const pieData = useMemo(() => {
+    const counts = usageQuery.data?.usageByModelTypeCounts;
+    if (!counts) return [];
+
+    return (["LLM", "OCR", "OTHER"] as const).map((type) => ({
+      type,
+      name: type,
+      value: counts[type] ?? 0,
+    }));
+  }, [usageQuery.data]);
+
+  const activeKeys = insightsQuery.data?.activeApiKeys ?? 0;
+  const tasksThisMonth = insightsQuery.data?.tasksThisMonth ?? 0;
+  const consumptionToday = insightsQuery.data?.todaysConsumption ?? 0;
+  const currentBalance = insightsQuery.data?.currentBalance ?? user?.balance ?? 0;
 
   return (
     <div>
       <header className="mb-8">
         <h1 className="text-2xl font-semibold text-zinc-950">
-          {greet}, {first}
+          {greet}, {displayName}
         </h1>
         <p className="mt-0.5 text-[13px] text-zinc-400">
           {format(new Date(), "EEEE, MMMM d")}
@@ -145,7 +173,7 @@ export default function DashboardHomePage() {
         <div className="rounded-2xl bg-zinc-950 p-5 text-white">
           <p className="text-xs text-zinc-400">Your balance</p>
           <p className="mt-1 text-[28px] font-semibold">
-            {formatNPR(user?.balance ?? 0)}
+            {formatNPR(currentBalance)}
           </p>
           <Link
             href="/dashboard/billing"
@@ -190,7 +218,7 @@ export default function DashboardHomePage() {
               <option value="year">Year</option>
             </select>
           </div>
-          <div className="min-h-[240px] w-full">
+          <div className="min-h-[150px] w-full">
             <SpendLineChart data={chartData} />
           </div>
         </div>
@@ -198,10 +226,9 @@ export default function DashboardHomePage() {
           <p className="mb-1 text-[13px] font-medium text-zinc-500">
             Usage by model type
           </p>
-          <div className="min-h-[240px] w-full flex items-center justify-center">
+          <div className="flex min-h-[150px] w-full items-start justify-start pt-2">
             <ModelTypePie data={pieData} />
           </div>
-          <ModelTypePieLegend data={pieData} />
         </div>
       </div>
 
@@ -210,7 +237,7 @@ export default function DashboardHomePage() {
           <p className="mb-3 text-[13px] font-medium text-zinc-500">
             Recent activity
           </p>
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+          <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-4">
             <div className="space-y-3">
               {(activity ?? []).slice(0, 4).map((a) => {
                 const { Icon, className } = getActivityIcon(a.action);
@@ -223,11 +250,11 @@ export default function DashboardHomePage() {
                       </div>
                       <div className="shrink-0">
                         <p className="flex items-center gap-3 whitespace-nowrap text-xs">
-                          <span className="break-all text-zinc-500">
+                          {/* <span className="break-all text-zinc-500">
                             {a.ipAddress && a.ipAddress !== "UNKNOWN"
                               ? `IP: ${a.ipAddress}`
                               : "IP: unknown"}
-                          </span>
+                          </span> */}
                           <span className="text-zinc-400">{formatActivityCreatedAt(a.created_at)}</span>
                         </p>
                       </div>

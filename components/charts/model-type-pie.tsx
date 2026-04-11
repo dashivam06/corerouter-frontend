@@ -64,7 +64,6 @@ export function ModelTypePieLegend({
             style={{ background: COLORS[s.type] ?? "#a1a1aa" }}
           />
           <span>{s.name}</span>
-          <span className="rounded-full bg-white px-1.5 py-0.5 text-[11px] text-zinc-500">{s.count ?? s.value}</span>
         </span>
       ))}
     </div>

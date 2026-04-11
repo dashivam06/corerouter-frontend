@@ -332,7 +332,7 @@ export default function AdminDashboardPage() {
                         </div>
                         <div className="shrink-0">
                           <p className="flex items-center gap-3 whitespace-nowrap text-xs">
-                            <span className="break-all text-zinc-500">
+                            <span className="hidden break-all text-zinc-500 lg:inline">
                               {item.ipAddress && item.ipAddress !== "UNKNOWN"
                                 ? `IP: ${item.ipAddress}`
                                 : "IP: unknown location"}

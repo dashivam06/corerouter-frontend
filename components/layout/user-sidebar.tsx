@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BarChart2,
   Cpu,
@@ -42,6 +42,14 @@ export function UserSidebar() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const [logoFailed, setLogoFailed] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [user?.profile_image, user?.email]);
+
+  const displayName = user?.full_name?.trim() || user?.email?.split("@")[0] || "User";
+  const avatarLabel = displayName || user?.email || "?";
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex w-[240px] flex-col bg-zinc-950 text-white">
@@ -95,20 +103,21 @@ export function UserSidebar() {
       </nav>
       <div className="border-t border-zinc-800 p-3">
         <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-          {user?.profile_image ? (
+          {user?.profile_image && !avatarFailed ? (
             <img
               src={user.profile_image}
-              alt=""
+              alt={displayName}
               className="size-10 shrink-0 rounded-full object-cover"
+              onError={() => setAvatarFailed(true)}
             />
           ) : (
             <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-xs font-medium text-zinc-200">
-              {user ? initials(user.full_name || user.email) : "?"}
+              {user ? initials(avatarLabel) : "?"}
             </div>
           )}
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-white">
-              {user?.full_name ?? "User"}
+              {displayName}
             </p>
             <p className="truncate text-xs text-zinc-500">{user?.email}</p>
           </div>

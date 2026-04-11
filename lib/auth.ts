@@ -106,13 +106,14 @@ export function userFromAccessToken(token: string): MockUser | null {
 
   const role = claims.role === "ADMIN" ? "ADMIN" : "USER";
   const subId = Number.parseInt(claims.sub ?? "0", 10);
+  const emailLocalPart = claims.email.split("@")[0]?.trim();
   return {
     user_id: Number.isFinite(subId) && subId > 0 ? subId : Date.now(),
     balance: 0,
     created_at: new Date((claims.iat ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
     email: claims.email,
     email_subscribed: true,
-    full_name: claims.username || claims.email,
+    full_name: claims.username || emailLocalPart || claims.email,
     last_login: new Date().toISOString(),
     profile_image: null,
     role,
