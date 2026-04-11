@@ -3,7 +3,7 @@ import { Cpu, Zap, Wallet, Check, ArrowRight, BarChart2, Code2, Shield, Trending
 import { type ModelResponse, fetchModels, fetchBillingForModel } from "@/lib/api";
 import type { MockBillingConfig } from "@/lib/mock-data";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { HomeAuthRedirect } from "@/components/layout/home-auth-redirect";
+import { MarketingAuthActions } from "@/components/layout/marketing-auth-actions";
 
 async function pricingRows() {
   let models: ModelResponse[] = [];
@@ -57,7 +57,6 @@ export default async function LandingPage() {
 
   return (
     <div className="min-h-screen bg-white text-zinc-950 font-montserrat">
-      <HomeAuthRedirect />
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
@@ -71,26 +70,7 @@ export default async function LandingPage() {
               COREROUTER
             </span>
           </Link>
-          <div className="flex items-center gap-8">
-            <Link
-              href="/models"
-              className="font-montserrat text-sm font-semibold text-zinc-600 transition-all hover:-translate-y-0.5 hover:text-zinc-950"
-            >
-              Models
-            </Link>
-            <Link
-              href="/login"
-              className="font-montserrat text-sm font-semibold text-zinc-600 transition-colors hover:text-zinc-950"
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/register"
-              className="font-montserrat rounded-lg bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-zinc-950/20"
-            >
-              Get started
-            </Link>
-          </div>
+          <MarketingAuthActions />
         </div>
       </header>
 
@@ -481,12 +461,12 @@ export default async function LandingPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-zinc-600">
-            <a href="tel:+9779800000000" className="hover:text-zinc-900">
+            {/* <a href="tel:+9779800000000" className="hover:text-zinc-900">
               +977 9828603447
             </a>
             <a href="mailto:info@corerouter.me" className="hover:text-zinc-900">
               thakurshivam202063@gmail.com
-            </a>
+            </a> */}
           </div>
 
           <div className="flex justify-center sm:justify-end">
