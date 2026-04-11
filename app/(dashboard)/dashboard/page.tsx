@@ -160,7 +160,7 @@ export default function DashboardHomePage() {
 
   return (
     <div>
-      <header className="mb-8">
+      <header className="mb-4">
         <h1 className="text-2xl font-semibold text-zinc-950">
           {greet}, {displayName}
         </h1>
