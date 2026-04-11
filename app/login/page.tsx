@@ -38,6 +38,8 @@ function GitHubIcon({ className }: { className?: string }) {
 
 export default function LoginPage() {
   const router = useRouter();
+  const authBootstrapped = useAuthStore((s) => s.authBootstrapped);
+  const accessToken = useAuthStore((s) => s.accessToken);
   const setSession = useAuthStore((s) => s.setSession);
   const [step, setStep] = useState<"email" | "password">("email");
   const [email, setEmail] = useState("");
@@ -86,6 +88,12 @@ export default function LoginPage() {
 
     return () => window.clearTimeout(timer);
   }, [showAuthNotice]);
+
+  useEffect(() => {
+    if (!authBootstrapped) return;
+    if (!accessToken) return;
+    router.replace("/dashboard");
+  }, [authBootstrapped, accessToken, router]);
 
   useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => {

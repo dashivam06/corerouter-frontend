@@ -512,6 +512,34 @@ export type UserUsageInsightsResponse = {
   avgCostPerRequestChangePercent: number;
 };
 
+export type BillingUsagePeriod =
+  | "7days"
+  | "15days"
+  | "30days"
+  | "3m"
+  | "6m"
+  | "year";
+
+export type UserUsageHistoryUnitBreakdown = {
+  quantity: number;
+  totalCost: number;
+  avgRatePerUnit: number;
+};
+
+export type UserUsageHistoryDay = {
+  date: string;
+  totalCost: number;
+  totalRequests: number;
+  usageByUnit: Record<string, UserUsageHistoryUnitBreakdown>;
+};
+
+export type UserUsageHistoryResponse = {
+  period: string;
+  fromDate: string;
+  toDate: string;
+  dailyHistory: UserUsageHistoryDay[];
+};
+
 export type TaskStatusValue = "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
 export type AdminTaskStatusFilter = "ALL" | TaskStatusValue;
 
@@ -3136,8 +3164,36 @@ export async function fetchTransactionHistory(_params?: {
   );
 }
 
-export async function getUserUsageInsights(): Promise<UserUsageInsightsResponse> {
-  return requestBilling<UserUsageInsightsResponse>("GET", "/usage/insights");
+export async function getUserUsageInsights(params?: {
+  period?: BillingUsagePeriod;
+  fromDate?: string;
+  toDate?: string;
+}): Promise<UserUsageInsightsResponse> {
+  const query = new URLSearchParams();
+  query.set("period", params?.period ?? "30days");
+  if (params?.fromDate) query.set("fromDate", params.fromDate);
+  if (params?.toDate) query.set("toDate", params.toDate);
+
+  return requestBilling<UserUsageInsightsResponse>(
+    "GET",
+    `/usage/insights?${query.toString()}`
+  );
+}
+
+export async function getUserUsageHistory(params?: {
+  period?: BillingUsagePeriod;
+  fromDate?: string;
+  toDate?: string;
+}): Promise<UserUsageHistoryResponse> {
+  const query = new URLSearchParams();
+  query.set("period", params?.period ?? "30days");
+  if (params?.fromDate) query.set("fromDate", params.fromDate);
+  if (params?.toDate) query.set("toDate", params.toDate);
+
+  return requestBilling<UserUsageHistoryResponse>(
+    "GET",
+    `/usage/history?${query.toString()}`
+  );
 }
 
 export async function getUsageByTask(taskId: string): Promise<UsageRecordResponse[]> {

@@ -13,12 +13,12 @@ import {
 } from "lucide-react";
 import {
   ApiRequestError,
-  fetchModels,
-  fetchTasks,
   getUserActivityRecent,
+  getUserUsageHistory,
+  getUserUsageInsights,
   type UserActivityResponse,
+  type BillingUsagePeriod,
 } from "@/lib/api";
-import { mockUsageRecords } from "@/lib/mock-data";
 import { UserHeader } from "@/components/layout/user-header";
 import { StatCard } from "@/components/cards/stat-card";
 import { UsageStackedBar } from "@/components/charts/usage-stacked-bar";
@@ -90,12 +90,26 @@ function mapActivityError(error: unknown): string {
   return "Failed to load activity. Please try again.";
 }
 
-export default function UsagePage() {
-  const { data: tasks } = useQuery({ queryKey: ["tasks"], queryFn: fetchTasks });
-  const { data: models } = useQuery({ queryKey: ["models"], queryFn: fetchModels });
+function percentDelta(value: number | undefined): { label: string; positive: boolean } {
+  const resolved = value ?? 0;
+  const positive = resolved >= 0;
+  const arrow = positive ? "↑" : "↓";
+  return { label: `${arrow}${Math.abs(resolved)}% vs prior`, positive };
+}
 
-  const [period, setPeriod] = useState("month");
+export default function UsagePage() {
+  const [period, setPeriod] = useState<BillingUsagePeriod>("30days");
   const [activityPage, setActivityPage] = useState(0);
+
+  const usageInsightsQuery = useQuery({
+    queryKey: ["usage-insights", period],
+    queryFn: () => getUserUsageInsights({ period }),
+  });
+
+  const usageHistoryQuery = useQuery({
+    queryKey: ["usage-history", period],
+    queryFn: () => getUserUsageHistory({ period }),
+  });
 
   const {
     data: activityPageData,
@@ -109,32 +123,30 @@ export default function UsagePage() {
 
   const unitKeys = useMemo(() => {
     const s = new Set<string>();
-    mockUsageRecords.forEach((u) => s.add(u.usage_unit_type));
+    (usageHistoryQuery.data?.dailyHistory ?? []).forEach((day) => {
+      Object.keys(day.usageByUnit ?? {}).forEach((unit) => s.add(unit));
+    });
     return Array.from(s);
-  }, []);
+  }, [usageHistoryQuery.data?.dailyHistory]);
 
   const barData = useMemo(() => {
-    const days = 14;
-    const rows: Record<string, string | number>[] = [];
-    for (let d = days - 1; d >= 0; d--) {
-      const date = new Date();
-      date.setDate(date.getDate() - d);
-      const day = `${date.getMonth() + 1}/${date.getDate()}`;
-      const row: Record<string, string | number> = { day };
-      unitKeys.forEach((k) => {
-        row[k] = Math.round(
-          (Math.sin(d + k.length) + 1) * (k === "INPUT_TOKENS" ? 40 : 25)
-        );
+    return (usageHistoryQuery.data?.dailyHistory ?? []).map((day) => {
+      const date = new Date(day.date);
+      const row: Record<string, string | number> = {
+        day: `${date.getMonth() + 1}/${date.getDate()}`,
+      };
+      unitKeys.forEach((unit) => {
+        row[unit] = day.usageByUnit?.[unit]?.totalCost ?? 0;
       });
-      rows.push(row);
-    }
-    return rows;
-  }, [unitKeys]);
+      return row;
+    });
+  }, [unitKeys, usageHistoryQuery.data?.dailyHistory]);
 
-  const totalSpend = (tasks ?? []).reduce((a, t) => a + t.total_cost, 0);
-  const totalReq = (tasks ?? []).length;
-  const topModel =
-    models?.find((m) => m.modelId === 1)?.fullname ?? "GPT-4o November 2024";
+  const usageInsights = usageInsightsQuery.data;
+  const totalSpend = usageInsights?.totalSpend ?? 0;
+  const totalReq = usageInsights?.totalRequests ?? 0;
+  const topModel = usageInsights?.mostUsedModel ?? "—";
+  const avgCostPerRequest = usageInsights?.avgCostPerRequest ?? 0;
 
   return (
     <>
@@ -147,10 +159,12 @@ export default function UsagePage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="rounded-xl">
-            <SelectItem value="month">This month</SelectItem>
-            <SelectItem value="last">Last month</SelectItem>
-            <SelectItem value="30">Last 30 days</SelectItem>
-            <SelectItem value="custom">Custom range</SelectItem>
+            <SelectItem value="7days">Last 7 days</SelectItem>
+            <SelectItem value="15days">Last 15 days</SelectItem>
+            <SelectItem value="30days">Last 30 days</SelectItem>
+            <SelectItem value="3m">Last 3 months</SelectItem>
+            <SelectItem value="6m">Last 6 months</SelectItem>
+            <SelectItem value="year">Last 1 year</SelectItem>
           </SelectContent>
         </Select>
       </UserHeader>
@@ -159,18 +173,27 @@ export default function UsagePage() {
         <StatCard
           label="Total spend"
           value={formatCost(totalSpend)}
-          delta={{ value: "↑12% vs prior", positive: true }}
+          delta={{
+            value: percentDelta(usageInsights?.totalSpendChangePercent).label,
+            positive: percentDelta(usageInsights?.totalSpendChangePercent).positive,
+          }}
         />
         <StatCard
           label="Total requests"
           value={totalReq}
-          delta={{ value: "↑4% vs prior", positive: true }}
+          delta={{
+            value: percentDelta(usageInsights?.totalRequestsChangePercent).label,
+            positive: percentDelta(usageInsights?.totalRequestsChangePercent).positive,
+          }}
         />
         <StatCard label="Most used model" value={topModel} />
         <StatCard
           label="Avg cost / request"
-          value={formatCost(totalReq ? totalSpend / totalReq : 0)}
-          delta={{ value: "↓3% vs prior", positive: false }}
+          value={formatCost(avgCostPerRequest)}
+          delta={{
+            value: percentDelta(usageInsights?.avgCostPerRequestChangePercent).label,
+            positive: percentDelta(usageInsights?.avgCostPerRequestChangePercent).positive,
+          }}
         />
       </div>
 

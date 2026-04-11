@@ -3,6 +3,7 @@ import { Cpu, Zap, Wallet, Check, ArrowRight, BarChart2, Code2, Shield, Trending
 import { type ModelResponse, fetchModels, fetchBillingForModel } from "@/lib/api";
 import type { MockBillingConfig } from "@/lib/mock-data";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { HomeAuthRedirect } from "@/components/layout/home-auth-redirect";
 
 async function pricingRows() {
   let models: ModelResponse[] = [];
@@ -56,6 +57,7 @@ export default async function LandingPage() {
 
   return (
     <div className="min-h-screen bg-white text-zinc-950 font-montserrat">
+      <HomeAuthRedirect />
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">

@@ -69,6 +69,8 @@ function StepDots({
 
 export default function RegisterPage() {
   const router = useRouter();
+  const authBootstrapped = useAuthStore((s) => s.authBootstrapped);
+  const accessToken = useAuthStore((s) => s.accessToken);
   const setSession = useAuthStore((s) => s.setSession);
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -100,6 +102,12 @@ export default function RegisterPage() {
 
     router.push("/dashboard");
   }
+
+  useEffect(() => {
+    if (!authBootstrapped) return;
+    if (!accessToken) return;
+    router.replace("/dashboard");
+  }, [authBootstrapped, accessToken, router]);
 
   useEffect(() => {
     if (resendSecs <= 0) return;

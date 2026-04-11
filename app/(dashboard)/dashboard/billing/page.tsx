@@ -131,7 +131,7 @@ export default function BillingPage() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-zinc-200 bg-white p-6">
+        {/* <div className="rounded-2xl border border-zinc-200 bg-white p-6">
           <p className="text-xs font-medium text-zinc-500">Total spend</p>
           <p className="mt-2 text-3xl font-semibold text-zinc-950">{formatNPR(totalSpend)}</p>
           <p className="mt-2 text-xs text-zinc-500">Live usage insights</p>
@@ -141,7 +141,7 @@ export default function BillingPage() {
           <p className="text-xs font-medium text-zinc-500">Avg cost / request</p>
           <p className="mt-2 text-3xl font-semibold text-zinc-950">{formatNPR(avgCostPerRequest)}</p>
           <p className="mt-2 text-xs text-zinc-500">Current period</p>
-        </div>
+        </div> */}
       </div>
 
       <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5">
