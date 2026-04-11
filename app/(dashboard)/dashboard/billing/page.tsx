@@ -5,11 +5,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Clipboard } from "lucide-react";
 import {
   getUserBillingInsights,
-  getUserUsageInsights,
-  fetchTransactions,
-  getBalanceHistory,
-  getCreditsComparison,
+  fetchBalanceHistory,
+  fetchTransactionHistory,
   initiateTopUp,
+  type TransactionResponse,
 } from "@/lib/api";
 import { UserHeader } from "@/components/layout/user-header";
 import { useAuthStore } from "@/stores/auth-store";
@@ -30,7 +29,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import type { MockTransaction } from "@/lib/mock-data";
 import { format } from "date-fns";
 
 export default function BillingPage() {
@@ -39,14 +37,6 @@ export default function BillingPage() {
     queryKey: ["billing-insights"],
     queryFn: getUserBillingInsights,
   });
-  const { data: usageInsights } = useQuery({
-    queryKey: ["usage-insights"],
-    queryFn: getUserUsageInsights,
-  });
-  const { data: txs } = useQuery({
-    queryKey: ["transactions"],
-    queryFn: fetchTransactions,
-  });
 
   const [addOpen, setAddOpen] = useState(false);
   const [amountSel, setAmountSel] = useState<number | null>(1000);
@@ -54,40 +44,44 @@ export default function BillingPage() {
   const [range, setRange] = useState<"7" | "15" | "30" | "3m" | "6m">("30");
   const [txType, setTxType] = useState<string>("all");
   const [page, setPage] = useState(0);
-  const [detail, setDetail] = useState<MockTransaction | null>(null);
+  const [detail, setDetail] = useState<TransactionResponse | null>(null);
   const [topUpSubmitting, setTopUpSubmitting] = useState(false);
   const [topUpError, setTopUpError] = useState<string | null>(null);
 
-  const fullHistory = useMemo(() => {
-    let list = txs ?? [];
-    if (txType !== "all") {
-      list = list.filter((t) => t.type === txType);
-    }
-    return list;
-  }, [txs, txType]);
+  const { data: txPage } = useQuery({
+    queryKey: ["transactions-history", page, txType],
+    queryFn: () =>
+      fetchTransactionHistory({
+        page,
+        size: 6,
+        type: txType === "all" ? undefined : txType,
+      }),
+  });
+
+  const { data: balanceHistory } = useQuery({
+    queryKey: ["balance-history", range],
+    queryFn: () => fetchBalanceHistory({ period: range }),
+  });
 
   const balance = billingInsights?.currentBalance ?? user?.balance ?? 0;
 
-  const pageSize = 6;
-  const paginated = fullHistory.slice(page * pageSize, (page + 1) * pageSize);
-  const pages = Math.max(1, Math.ceil(fullHistory.length / pageSize));
+  const paginated = txPage?.content ?? [];
+  const pages = Math.max(1, txPage?.totalPages ?? 1);
 
   const balanceSeries = useMemo(() => {
-    const raw = getBalanceHistory(balance);
-    const n =
-      range === "7" ? 7 : range === "15" ? 15 : range === "30" ? 30 : range === "3m" ? 90 : 180;
-    return raw.slice(-n);
-  }, [balance, range]);
+    return (balanceHistory?.balanceHistory ?? []).map((point) => ({
+      date: point.date,
+      balance: point.value,
+    }));
+  }, [balanceHistory]);
 
-  const thisMonth = billingInsights?.creditsUsedThisMonth ?? getCreditsComparison().thisMonth;
-  const lastMonth = getCreditsComparison().lastMonth;
-  const deltaPct =
-    billingInsights && lastMonth > 0
-      ? Math.round(((thisMonth - lastMonth) / lastMonth) * 100)
-      : 0;
+  const thisMonth = billingInsights?.creditsUsedThisMonth ?? 0;
+  const deltaPct = Math.round(
+    billingInsights?.creditsUsedChangeFromLastMonthPercent ?? 0
+  );
 
-  const totalSpend = usageInsights?.totalSpend ?? 0;
-  const avgCostPerRequest = usageInsights?.avgCostPerRequest ?? 0;
+  const totalSpend = billingInsights?.totalSpend ?? billingInsights?.spendingInSelectedPeriod ?? 0;
+  const avgCostPerRequest = billingInsights?.avgCostPerRequest ?? 0;
 
   function payAmount(): number {
     if (amountSel) return amountSel;
@@ -214,21 +208,21 @@ export default function BillingPage() {
             <tbody>
               {paginated.map((t) => (
                 <tr
-                  key={t.transaction_id}
+                  key={t.transactionId}
                   className="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50"
                   onClick={() => setDetail(t)}
                 >
                   <td className="max-w-[140px] truncate px-4 py-3 font-mono text-xs text-zinc-500">
                     <span className="group inline-flex items-center gap-1">
-                      {t.esewa_transaction_id ?? "—"}
-                      {t.esewa_transaction_id ? (
+                      {t.esewaTransactionId ?? "—"}
+                      {t.esewaTransactionId ? (
                         <button
                           type="button"
                           className="opacity-0 transition-opacity group-hover:opacity-100"
                           onClick={(e) => {
                             e.stopPropagation();
                             navigator.clipboard.writeText(
-                              t.esewa_transaction_id ?? ""
+                              t.esewaTransactionId ?? ""
                             );
                           }}
                         >
@@ -247,7 +241,7 @@ export default function BillingPage() {
                     <StatusBadge status={t.status} />
                   </td>
                   <td className="px-4 py-3 text-right text-sm text-zinc-400">
-                    {formatRelative(new Date(t.created_at))}
+                    {formatRelative(new Date(t.createdAt))}
                   </td>
                 </tr>
               ))}
@@ -392,16 +386,16 @@ export default function BillingPage() {
                 <div>
                   <p className="text-xs text-zinc-400">eSewa Transaction ID</p>
                   <div className="mt-1 rounded-xl bg-zinc-50 p-3 font-mono text-sm text-zinc-950">
-                    {detail.esewa_transaction_id ?? "—"}
+                    {detail.esewaTransactionId ?? "—"}
                   </div>
-                  {detail.esewa_transaction_id ? (
+                  {detail.esewaTransactionId ? (
                     <Button
                       variant="outline"
                       size="sm"
                       className="mt-2 rounded-xl"
                       onClick={() =>
                         navigator.clipboard.writeText(
-                          detail.esewa_transaction_id ?? ""
+                          detail.esewaTransactionId ?? ""
                         )
                       }
                     >
@@ -419,17 +413,17 @@ export default function BillingPage() {
                 <div className="space-y-2 text-sm text-zinc-600">
                   <p>
                     <span className="text-zinc-400">Created: </span>
-                    {format(new Date(detail.created_at), "PPpp")}
+                    {format(new Date(detail.createdAt), "PPpp")}
                   </p>
                   <p>
                     <span className="text-zinc-400">Completed: </span>
-                    {detail.completed_at
-                      ? format(new Date(detail.completed_at), "PPpp")
+                    {detail.completedAt
+                      ? format(new Date(detail.completedAt), "PPpp")
                       : "—"}
                   </p>
                   <p>
                     <span className="text-zinc-400">Product code: </span>
-                    {detail.product_code ?? "—"}
+                    {detail.relatedTaskId ?? "—"}
                   </p>
                 </div>
               </div>

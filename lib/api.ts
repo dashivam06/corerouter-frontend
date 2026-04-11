@@ -489,6 +489,7 @@ export type UserBillingInsightsResponse = {
   currentBalance: number;
   creditsUsedThisMonth: number;
   creditsUsedChangeFromLastMonthPercent: number;
+  totalSpend?: number;
   activeApiKeys: number;
   tasksThisMonth: number;
   todaysConsumption: number;
@@ -3100,19 +3101,17 @@ export async function fetchBalanceHistory(_params?: { period?: string }): Promis
   balanceHistory: { date: string; value: number }[];
   totalTopUp: number;
 }> {
-  const balanceHistory = getBalanceHistory(mockUser.balance);
-  const fromDate = balanceHistory[0]?.date ?? new Date().toISOString().slice(0, 10);
-  const toDate = balanceHistory[balanceHistory.length - 1]?.date ?? fromDate;
-
-  return {
-    fromDate,
-    toDate,
-    balanceHistory: balanceHistory.map((point) => ({
-      date: point.date,
-      value: point.balance,
-    })),
-    totalTopUp: mockUser.balance,
-  };
+  const query = new URLSearchParams();
+  if (_params?.period) {
+    query.set("period", _params.period);
+  }
+  const suffix = query.toString();
+  return requestBilling<{
+    fromDate: string;
+    toDate: string;
+    balanceHistory: { date: string; value: number }[];
+    totalTopUp: number;
+  }>("GET", `/transactions/balance-history${suffix ? `?${suffix}` : ""}`);
 }
 
 export async function fetchTransactionHistory(_params?: {
@@ -3123,31 +3122,18 @@ export async function fetchTransactionHistory(_params?: {
   status?: string;
   search?: string;
 }): Promise<PaginatedResponse<TransactionResponse>> {
-  const transactions = await fetchTransactions();
-  const mapped = transactions.map(
-    (transaction): TransactionResponse => ({
-      transactionId: transaction.transaction_id,
-      userId: transaction.user_id,
-      userName: mockUser.full_name,
-      amount: transaction.amount,
-      type: transaction.type,
-      status: transaction.status,
-      esewaTransactionId: transaction.esewa_transaction_id ?? "",
-      relatedTaskId: transaction.product_code,
-      completedAt: transaction.completed_at,
-      createdAt: transaction.created_at,
-    })
-  );
+  const query = new URLSearchParams();
+  query.set("page", String(_params?.page ?? 0));
+  query.set("size", String(_params?.size ?? 20));
+  if (_params?.period) query.set("period", _params.period);
+  if (_params?.type) query.set("type", _params.type);
+  if (_params?.status) query.set("status", _params.status);
+  if (_params?.search) query.set("search", _params.search);
 
-  return {
-    content: mapped,
-    totalElements: mapped.length,
-    totalPages: 1,
-    number: 0,
-    size: mapped.length,
-    first: true,
-    last: true,
-  };
+  return requestBilling<PaginatedResponse<TransactionResponse>>(
+    "GET",
+    `/transactions/history?${query.toString()}`
+  );
 }
 
 export async function getUserUsageInsights(): Promise<UserUsageInsightsResponse> {
