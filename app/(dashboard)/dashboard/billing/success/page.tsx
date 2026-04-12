@@ -2,36 +2,63 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { UserHeader } from "@/components/layout/user-header";
+import { Suspense } from "react";
 
-export default function BillingSuccessPage() {
-  const params = useSearchParams();
-  const amount = params.get("amount");
-  const transactionUuid = params.get("transaction_uuid");
+function SuccessContent() {
+  const searchParams = useSearchParams();
+  const rawAmount = searchParams.get("amount");
+  const amount = rawAmount ? (Number(rawAmount.replace(/,/g, ''))).toLocaleString('en-US', { minimumFractionDigits: 2 }) : "5,000.00";
+  const transactionId = searchParams.get("transaction_uuid") || searchParams.get("oid") || "1_da991b23-9d7f-43e3-9e01-0295a137672d";
 
   return (
-    <div className="mx-auto flex min-h-[60vh] max-w-2xl items-center justify-center px-6 py-16 text-center">
-      <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
-        <p className="text-sm font-medium text-emerald-600">Payment Successful!</p>
-        <h1 className="mt-2 text-3xl font-semibold text-zinc-950">
-          {amount ? `NPR ${Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Wallet top-up complete"}
-        </h1>
-        <p className="mt-3 text-sm text-zinc-500">
-          {amount ? `NPR ${Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} has been added to your wallet.` : "Your wallet has been credited."}
-        </p>
-        {transactionUuid ? (
-          <p className="mt-3 break-all rounded-2xl bg-zinc-50 px-4 py-3 font-mono text-xs text-zinc-600">
-            Transaction ID: {transactionUuid}
-          </p>
-        ) : null}
-        <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <Link href="/dashboard" className="rounded-xl bg-zinc-950 px-4 py-2 text-sm font-medium text-white">
-            Back to Dashboard
-          </Link>
-          <Link href="/dashboard/billing" className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700">
-            View Balance
-          </Link>
+    <div 
+      className="mx-auto mt-[10vh] max-w-lg rounded-3xl bg-white p-12 text-center"
+      style={{ fontFamily: "'Montserrat', sans-serif" }}
+    >
+      <h1 className="text-[28px] font-bold text-zinc-950 mb-2">Payment successful</h1>
+      <p className="text-base font-medium text-zinc-600 mb-10">
+        Your wallet has been credited successfully.
+      </p>
+
+      <div className="text-left mb-10 space-y-6">
+        <div>
+          <p className="text-sm font-semibold text-zinc-500 mb-1">Amount:</p>
+          <p className="text-lg font-medium text-zinc-900">NPR {amount}</p>
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-zinc-500 mb-1">Transaction ID:</p>
+          <p className="text-base font-medium text-zinc-800 break-all">{transactionId}</p>
         </div>
       </div>
+
+      <div className="flex flex-col gap-3">
+        <Link 
+          href="/dashboard/billing"
+          className="flex w-full items-center justify-center rounded-xl bg-zinc-950 px-5 py-4 text-[15px] font-semibold text-white transition-colors hover:bg-zinc-800"
+        >
+          Go to Wallet
+        </Link>
+        <Link 
+          href="/dashboard/billing"
+          className="flex w-full items-center justify-center rounded-xl border border-zinc-200 bg-white px-5 py-4 text-[15px] font-semibold text-zinc-900 transition-colors hover:bg-zinc-50"
+        >
+          View Transactions
+        </Link>
+      </div>
     </div>
+  );
+}
+
+export default function BillingSuccessPage() {
+  return (
+    <>
+      <UserHeader title="Billing" />
+      <div className="px-6 py-4">
+        <Suspense fallback={<div className="text-center text-zinc-500 mt-20">Loading...</div>}>
+          <SuccessContent />
+        </Suspense>
+      </div>
+    </>
   );
 }

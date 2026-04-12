@@ -31,6 +31,44 @@ import {
 } from "@/components/ui/sheet";
 import { format } from "date-fns";
 
+type LogoProps = {
+  className?: string;
+};
+
+// Use newly added local brand assets
+function EsewaLogo({ className }: LogoProps) {
+  return (
+    <img 
+      src="/esewa.webp" 
+      alt="eSewa logo" 
+      className={className}
+      style={{ height: '32px', width: 'auto', objectFit: 'contain', display: 'block' }}
+    />
+  );
+}
+
+function KhaltiLogo({ className }: LogoProps) {
+  return (
+    <img 
+      src="/khalti.png" 
+      alt="Khalti logo" 
+      className={className}
+      style={{ height: '32px', width: 'auto', objectFit: 'contain', display: 'block' }}
+    />
+  );
+}
+
+function VisaLogo({ className }: LogoProps) {
+  return (
+    <img 
+      src="/visa.png" 
+      alt="Visa logo" 
+      className={className}
+      style={{ height: '24px', width: 'auto', objectFit: 'contain', display: 'block' }}
+    />
+  );
+}
+
 export default function BillingPage() {
   const user = useAuthStore((s) => s.user);
   const { data: billingInsights } = useQuery({
@@ -39,14 +77,15 @@ export default function BillingPage() {
   });
 
   const [addOpen, setAddOpen] = useState(false);
-  const [amountSel, setAmountSel] = useState<number | null>(1000);
-  const [custom, setCustom] = useState("");
+  const [amountSel, setAmountSel] = useState<number | null>(500);
+  const [custom, setCustom] = useState("500");
   const [range, setRange] = useState<"7" | "15" | "30" | "3m" | "6m">("30");
   const [txType, setTxType] = useState<string>("all");
   const [page, setPage] = useState(0);
   const [detail, setDetail] = useState<TransactionResponse | null>(null);
   const [topUpSubmitting, setTopUpSubmitting] = useState(false);
   const [topUpError, setTopUpError] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<"esewa" | "khalti" | "visa">("esewa");
 
   const { data: txPage } = useQuery({
     queryKey: ["transactions-history", page, txType],
@@ -84,7 +123,7 @@ export default function BillingPage() {
   const avgCostPerRequest = billingInsights?.avgCostPerRequest ?? 0;
 
   function payAmount(): number {
-    if (amountSel) return amountSel;
+    if (amountSel != null) return amountSel;
     const c = Number(custom.replace(/[^\d.]/g, ""));
     return c || 0;
   }
@@ -269,106 +308,151 @@ export default function BillingPage() {
       </div>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-md rounded-2xl border border-zinc-200 shadow-none">
-          <DialogHeader>
-            <DialogTitle>Add balance</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-4 gap-2">
-            {[500, 1000, 2000, 5000].map((a) => (
-              <button
-                key={a}
-                type="button"
-                onClick={() => {
-                  setAmountSel(a);
-                  setCustom("");
-                }}
-                className={`rounded-xl border py-2 text-sm font-medium ${
-                  amountSel === a && !custom
-                    ? "border-zinc-950 bg-zinc-950 text-white"
-                    : "border-zinc-200 bg-white text-zinc-700"
-                }`}
-              >
-                रू {a.toLocaleString()}
-              </button>
-            ))}
-          </div>
-          <div className="mt-4">
-            <label className="text-xs text-zinc-500">Or enter amount</label>
-            <div className="mt-1 flex rounded-xl border border-zinc-200 bg-white">
-              <span className="flex items-center pl-3 text-sm text-zinc-500">
-                रू
-              </span>
-              <input
-                className="w-full rounded-xl py-2 pr-3 pl-1 text-sm outline-none"
-                placeholder="0.00"
-                value={custom}
-                onChange={(e) => {
-                  setCustom(e.target.value);
-                  setAmountSel(null);
-                }}
-              />
-            </div>
-            {payAmount() > 0 && payAmount() < 100 ? (
-              <p className="mt-2 text-sm text-red-600">
-                Minimum top-up is रू 100
-              </p>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3 font-medium text-white"
-            style={{ background: "#60BB46" }}
-            disabled={topUpSubmitting}
-            onClick={async () => {
-              const amount = payAmount();
-              if (!amount || amount < 1) {
-                setTopUpError("Minimum top-up amount is NPR 1.00");
-                return;
-              }
-              setTopUpSubmitting(true);
-              setTopUpError(null);
-              try {
-                const formFields = await initiateTopUp(amount);
-                const paymentUrl =
-                  formFields.payment_url ||
-                  formFields.paymentUrl ||
-                  formFields.esewa_url ||
-                  formFields.esewaUrl ||
-                  "https://esewa.com.np/epay/main";
+        <DialogContent 
+          className="w-[95vw] max-w-lg rounded-3xl border border-zinc-200 p-0 shadow-xl overflow-hidden max-h-[90vh]"
+          style={{ fontFamily: "'Montserrat', sans-serif" }}
+        >
+          <div className="flex flex-col h-full max-h-[90vh] overflow-y-auto">
+            {/* Top Section: Amount Selection */}
+            <div className="bg-white p-6 sm:p-8 shrink-0">
+              <DialogHeader className="mb-6 space-y-1 text-left">
+                <DialogTitle className="text-xl font-bold tracking-tight">Add balance</DialogTitle>
+                <p className="text-sm text-zinc-500">Select or enter the amount to top up.</p>
+              </DialogHeader>
 
-                const form = document.createElement("form");
-                form.method = "POST";
-                form.action = paymentUrl;
-                form.style.display = "none";
-                for (const [key, value] of Object.entries(formFields)) {
-                  if (key === "payment_url" || key === "paymentUrl" || key === "esewa_url" || key === "esewaUrl") continue;
-                  const input = document.createElement("input");
-                  input.type = "hidden";
-                  input.name = key;
-                  input.value = value;
-                  form.appendChild(input);
-                }
-                document.body.appendChild(form);
-                form.submit();
-              } catch (error) {
-                setTopUpError(error instanceof Error ? error.message : "Failed to initiate payment. Please try again.");
-                setTopUpSubmitting(false);
-              }
-            }}
-          >
-            {topUpSubmitting ? "Redirecting..." : "Pay with eSewa"}
-          </button>
-          {topUpError ? (
-            <p className="mt-2 text-center text-sm text-red-600">{topUpError}</p>
-          ) : null}
-          <p className="mt-2 text-center text-[11px] text-zinc-400">
-            Powered by eSewa · Secure payment · Nepal&apos;s trusted wallet
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
+              <div className="grid grid-cols-2 gap-3">
+                {[500, 1000, 2000, 5000].map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => {
+                      setAmountSel(a);
+                      setCustom(String(a));
+                    }}
+                    className={`flex flex-col items-start rounded-2xl border p-3.5 text-left transition-all ${
+                      amountSel === a
+                        ? "border-zinc-950 bg-zinc-950 text-white shadow-md ring-1 ring-zinc-950 ring-offset-2"
+                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
+                    }`}
+                  >
+                    <span className={`text-[12px] font-medium ${amountSel === a ? "text-zinc-300" : "text-zinc-500"}`}>Amount</span>
+                    <span className="mt-1 text-lg font-bold">रू {a}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-6">
+                <label className="text-sm font-medium text-zinc-800">Or enter custom amount</label>
+                <div className="mt-2 flex items-center overflow-hidden rounded-2xl border-2 border-zinc-200 bg-white transition-colors focus-within:border-zinc-400 focus-within:ring-2 focus-within:ring-zinc-400/20">
+                  <div className="flex h-12 items-center bg-zinc-50/50 px-4 text-zinc-500 border-r-2 border-zinc-200">
+                    <span className="font-semibold text-base">रू</span>
+                  </div>
+                  <input
+                    className="h-12 w-full bg-transparent px-4 text-lg font-semibold outline-none placeholder:text-zinc-300"
+                    placeholder="500"
+                    value={custom}
+                    onChange={(e) => {
+                      setCustom(e.target.value);
+                      setAmountSel(null);
+                    }}
+                  />
+                </div>
+                {payAmount() > 0 && payAmount() < 500 ? (
+                  <p className="mt-2.5 text-sm font-medium text-red-600">Minimum top-up is रू 500</p>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Bottom Section: Payment Methods */}
+            <div className="bg-zinc-50 p-6 sm:p-8 border-t border-zinc-200 shrink-0">
+              <p className="mb-4 text-[15px] font-bold text-zinc-950 tracking-tight">Payment method</p>
+              
+              <div className="grid grid-cols-3 gap-3">
+                {/* eSewa */}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("esewa")}
+                  className={`flex h-16 w-full items-center justify-center rounded-xl border-2 transition-all ${
+                    paymentMethod === "esewa"
+                      ? "border-green-500 bg-green-50/50 ring-4 ring-green-500/10 shadow-sm"
+                      : "border-zinc-200 bg-white shadow-sm hover:border-zinc-300"
+                  }`}
+                >
+                  <EsewaLogo className="h-6 w-auto drop-shadow-sm" />
+                </button>
+
+                {/* Khalti */}
+                <button
+                  type="button"
+                  disabled
+                  className="flex h-16 w-full items-center justify-center cursor-not-allowed rounded-xl border-2 border-zinc-200 bg-zinc-50 opacity-60 transition-all saturate-0"
+                >
+                  <KhaltiLogo className="h-6 w-auto mix-blend-luminosity opacity-80" />
+                </button>
+
+                {/* Visa */}
+                <button
+                  type="button"
+                  disabled
+                  className="flex h-16 w-full items-center justify-center cursor-not-allowed rounded-xl border-2 border-zinc-200 bg-zinc-50 opacity-60 transition-all saturate-0"
+                >
+                  <VisaLogo className="h-5 w-auto mix-blend-luminosity opacity-80" />
+                </button>
+              </div>
+
+              <div className="mt-8">
+                <button
+                  type="button"
+                  className="group flex w-full items-center justify-center gap-2 rounded-xl py-3.5 font-medium text-white transition-all disabled:opacity-70 hover:brightness-110"
+                  style={{ background: "#60BB46" }}
+                  disabled={topUpSubmitting || paymentMethod !== "esewa" || payAmount() < 500}
+                  onClick={async () => {
+                    const amount = payAmount();
+                    if (!amount || amount < 500) {
+                      setTopUpError("Minimum top-up amount is NPR 500.00");
+                      return;
+                    }
+                    setTopUpSubmitting(true);
+                    setTopUpError(null);
+                    try {
+                      const formFields = await initiateTopUp(amount);
+                      const paymentUrl =
+                        formFields.payment_url ||
+                        formFields.paymentUrl ||
+                        formFields.esewa_url ||
+                        formFields.esewaUrl ||
+                        "https://esewa.com.np/epay/main";
+
+                      const form = document.createElement("form");
+                      form.method = "POST";
+                      form.action = paymentUrl;
+                      form.style.display = "none";
+                      for (const [key, value] of Object.entries(formFields)) {
+                        if (key === "payment_url" || key === "paymentUrl" || key === "esewa_url" || key === "esewaUrl") continue;
+                        const input = document.createElement("input");
+                        input.type = "hidden";
+                        input.name = key;
+                        input.value = value;
+                        form.appendChild(input);
+                      }
+                      document.body.appendChild(form);
+                      form.submit();
+                    } catch (error) {
+                      setTopUpError(error instanceof Error ? error.message : "Failed to initiate payment. Please try again.");
+                      setTopUpSubmitting(false);
+                    }
+                  }}
+                >
+                  <EsewaLogo className="h-5 w-5 transition-transform group-hover:scale-110" />
+                  {topUpSubmitting ? "Redirecting..." : "Pay with eSewa"}
+                </button>
+
+                {topUpError ? (
+                  <p className="mt-2 text-center text-sm text-red-600">{topUpError}</p>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

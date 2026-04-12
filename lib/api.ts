@@ -32,7 +32,7 @@ import {
 const delay = (ms = 280) => new Promise((r) => setTimeout(r, ms));
 
 export const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.corerouter.me"
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:7777" || "https://api.corerouter.me"
 ).replace(/\/$/, "");
 export const SOCIAL_OAUTH_GOOGLE_URL = `${API_BASE_URL}/oauth2/authorization/google`;
 export const SOCIAL_OAUTH_GITHUB_URL = `${API_BASE_URL}/oauth2/authorization/github`;
@@ -3246,18 +3246,126 @@ export async function initiateTopUp(amount: number): Promise<TopUpInitiateRespon
   return requestWalletTopUp<TopUpInitiateResponse>("POST", "/initiate", { amount });
 }
 
+type WalletTopUpCallbackFailureParams = {
+  data?: string;
+  transactionUuid?: string;
+  tx?: string;
+  amount?: string;
+  status?: string;
+};
+
+function toApiEnvelopeLike(value: unknown): Partial<ApiEnvelope<unknown>> | null {
+  if (!value || typeof value !== "object") return null;
+  return value as Partial<ApiEnvelope<unknown>>;
+}
+
+function toApiEnvelopeErrors(value: unknown): ValidationErrorItem[] {
+  const envelope = toApiEnvelopeLike(value);
+  if (!envelope || !Array.isArray(envelope.errors)) return [];
+  return envelope.errors.filter(
+    (item): item is ValidationErrorItem =>
+      Boolean(item && typeof item.field === "string" && typeof item.message === "string")
+  );
+}
+
+async function requestWalletTopUpCallback<TRes>(
+  path: string,
+  timeoutMs = 12000
+): Promise<TRes> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${WALLET_TOPUP_BASE}${path}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiRequestError("Request timed out while verifying payment.", 408);
+    }
+    throw new ApiRequestError("Unable to connect. Check your internet connection.", 0);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  const envelope = toApiEnvelopeLike(payload);
+  const envelopeMessage =
+    envelope && typeof envelope.message === "string" ? envelope.message : "";
+  const envelopeStatus =
+    envelope && typeof envelope.status === "number" ? envelope.status : response.status;
+
+  if (!response.ok) {
+    throw new ApiRequestError(
+      envelopeMessage || fallbackMessage(response.status),
+      response.status,
+      toApiEnvelopeErrors(payload)
+    );
+  }
+
+  if (envelope && typeof envelope.success === "boolean") {
+    if (!envelope.success || envelope.data == null) {
+      throw new ApiRequestError(
+        envelopeMessage || fallbackMessage(envelopeStatus),
+        envelopeStatus,
+        toApiEnvelopeErrors(payload)
+      );
+    }
+    return envelope.data as TRes;
+  }
+
+  if (payload == null) {
+    throw new ApiRequestError("Unexpected server response.", response.status);
+  }
+
+  return payload as TRes;
+}
+
+export async function verifyTopUpSuccessCallback(
+  data: string,
+  timeoutMs = 12000
+): Promise<{ amount: number; transaction_uuid: string }> {
+  return requestWalletTopUpCallback<{ amount: number; transaction_uuid: string }>(
+    `/success?data=${encodeURIComponent(data)}`,
+    timeoutMs
+  );
+}
+
+export async function verifyTopUpFailureCallback(
+  params: WalletTopUpCallbackFailureParams,
+  timeoutMs = 12000
+): Promise<void> {
+  const query = new URLSearchParams();
+  if (params.data) query.set("data", params.data);
+  if (params.transactionUuid) query.set("transaction_uuid", params.transactionUuid);
+  if (params.tx) query.set("tx", params.tx);
+  if (params.amount) query.set("amount", params.amount);
+  if (params.status) query.set("status", params.status);
+
+  await requestWalletTopUpCallback<unknown>(
+    `/failure${query.toString() ? `?${query.toString()}` : ""}`,
+    timeoutMs
+  );
+}
+
 export async function topUpSuccess(data: string): Promise<{ amount: number; transaction_uuid: string }> {
-  return requestWalletTopUp<{ amount: number; transaction_uuid: string }>("GET", `/success?data=${encodeURIComponent(data)}`);
+  return verifyTopUpSuccessCallback(data);
 }
 
 export async function topUpFailure(
   data?: string,
   transactionUuid?: string
 ): Promise<void> {
-  const params = new URLSearchParams();
-  if (data) params.set("data", data);
-  if (transactionUuid) params.set("transaction_uuid", transactionUuid);
-  await requestWalletTopUp<null>("GET", `/failure${params.toString() ? `?${params.toString()}` : ""}`);
+  await verifyTopUpFailureCallback({ data, transactionUuid });
 }
 
 export async function getAdminUserInsights(): Promise<AdminUserInsightsResponse> {
