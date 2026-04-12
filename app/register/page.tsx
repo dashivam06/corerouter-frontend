@@ -8,6 +8,8 @@ import { Loader2 } from "lucide-react";
 import {
   completeRegistration,
   registerSendOtp,
+  SOCIAL_OAUTH_GITHUB_URL,
+  SOCIAL_OAUTH_GOOGLE_URL,
   verifyOtp,
 } from "@/lib/api";
 import {
@@ -154,7 +156,7 @@ export default function RegisterPage() {
     setError(null);
     setSocialLoading("google");
 
-    window.location.assign("https://api.corerouter.me/oauth2/authorization/google");
+    window.location.assign(SOCIAL_OAUTH_GOOGLE_URL);
   }
 
   function onGitHubCreate() {
@@ -162,7 +164,7 @@ export default function RegisterPage() {
     setError(null);
     setSocialLoading("github");
 
-    window.location.assign("https://api.corerouter.me/oauth2/authorization/github");
+    window.location.assign(SOCIAL_OAUTH_GITHUB_URL);
   }
 
   async function onVerifyOtp(e: React.FormEvent) {

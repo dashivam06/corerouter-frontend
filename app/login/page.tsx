@@ -5,7 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
-import { loginSendEmail, loginWithPassword } from "@/lib/api";
+import {
+  loginSendEmail,
+  loginWithPassword,
+  SOCIAL_OAUTH_GITHUB_URL,
+  SOCIAL_OAUTH_GOOGLE_URL,
+} from "@/lib/api";
 import {
   setAuthProfileStorage,
   setAuthTokenStorage,
@@ -156,7 +161,7 @@ export default function LoginPage() {
     setError(null);
     setSocialLoading("google");
 
-    window.location.href = "https://api.corerouter.me/oauth2/authorization/google";
+    window.location.href = SOCIAL_OAUTH_GOOGLE_URL;
   }
 
   function onGitHubSignIn() {
@@ -164,7 +169,7 @@ export default function LoginPage() {
     setError(null);
     setSocialLoading("github");
 
-    window.location.href = "https://api.corerouter.me/oauth2/authorization/github";
+    window.location.href = SOCIAL_OAUTH_GITHUB_URL;
   }
 
   return (

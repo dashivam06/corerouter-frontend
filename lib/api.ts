@@ -31,9 +31,12 @@ import {
 
 const delay = (ms = 280) => new Promise((r) => setTimeout(r, ms));
 
-const API_BASE_URL = (
+export const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.corerouter.me"
 ).replace(/\/$/, "");
+export const SOCIAL_OAUTH_GOOGLE_URL = `${API_BASE_URL}/oauth2/authorization/google`;
+export const SOCIAL_OAUTH_GITHUB_URL = `${API_BASE_URL}/oauth2/authorization/github`;
+export const SAMPLE_COMPLETE_API_URL = `${API_BASE_URL}/v1/complete`;
 const AUTH_BASE = `${API_BASE_URL}/api/v1/auth`;
 const USER_PROFILE_BASE = `${API_BASE_URL}/api/v1/user/profile`;
 const USER_ACTIVITY_BASE = `${API_BASE_URL}/api/v1/user/activity`;

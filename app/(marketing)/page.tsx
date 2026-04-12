@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { Cpu, Zap, Wallet, Check, ArrowRight, BarChart2, Code2, Shield, TrendingUp } from "lucide-react";
-import { type ModelResponse, fetchModels, fetchBillingForModel } from "@/lib/api";
+import {
+  type ModelResponse,
+  fetchModels,
+  fetchBillingForModel,
+  SAMPLE_COMPLETE_API_URL,
+} from "@/lib/api";
 import type { MockBillingConfig } from "@/lib/mock-data";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { MarketingAuthActions } from "@/components/layout/marketing-auth-actions";
@@ -141,7 +146,7 @@ export default async function LandingPage() {
                       <code>
                         <span className="text-zinc-500">$</span>
                         <span className="text-cyan-400"> curl</span>
-                        <span className="text-blue-300"> https://api.corerouter.com/v1/complete</span>
+                        <span className="text-blue-300"> {SAMPLE_COMPLETE_API_URL}</span>
                         <span className="text-zinc-500"> \</span>
                         <br />
                         <span className="text-zinc-500">  </span>
