@@ -137,11 +137,11 @@ export default function AdminBillingPage() {
     <div className="space-y-6">
       <AdminHeader title="Billing Configs" subtitle="Billing insights and model pricing configuration" />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      {/* <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <AdminStatCard label="Total User Balance" value={formatNPR(insights?.totalBalance ?? 0)} />
         <AdminStatCard label="This Month's Volume" value={formatNPR(insights?.thisMonthVolume ?? 0)} />
         <AdminStatCard label="Today's Top-Ups" value={formatNPR(insights?.todayTopUpAmount ?? 0)} />
-      </div>
+      </div> */}
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
