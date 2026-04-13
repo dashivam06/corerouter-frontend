@@ -32,7 +32,7 @@ import {
 const delay = (ms = 280) => new Promise((r) => setTimeout(r, ms));
 
 export const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:7777" || "https://api.corerouter.me"
+  process.env.NEXT_PUBLIC_API_BASE_URL|| "https://api.corerouter.me" || "http://localhost:7777" 
 ).replace(/\/$/, "");
 export const SOCIAL_OAUTH_GOOGLE_URL = `${API_BASE_URL}/oauth2/authorization/google`;
 export const SOCIAL_OAUTH_GITHUB_URL = `${API_BASE_URL}/oauth2/authorization/github`;

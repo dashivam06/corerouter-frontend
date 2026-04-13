@@ -39,7 +39,7 @@ type LogoProps = {
 function EsewaLogo({ className }: LogoProps) {
   return (
     <img 
-      src="/esewa.webp" 
+      src="/esewa.png" 
       alt="eSewa logo" 
       className={className}
       style={{ height: '32px', width: 'auto', objectFit: 'contain', display: 'block' }}
@@ -314,7 +314,7 @@ export default function BillingPage() {
         >
           <div className="flex flex-col h-full max-h-[90vh] overflow-y-auto">
             {/* Top Section: Amount Selection */}
-            <div className="bg-white p-6 sm:p-8 shrink-0">
+            <div className="bg-white p-6 sm:p-6 shrink-0">
               <DialogHeader className="mb-6 space-y-1 text-left">
                 <DialogTitle className="text-xl font-bold tracking-tight">Add balance</DialogTitle>
                 <p className="text-sm text-zinc-500">Select or enter the amount to top up.</p>
@@ -364,7 +364,7 @@ export default function BillingPage() {
             </div>
 
             {/* Bottom Section: Payment Methods */}
-            <div className="bg-zinc-50 p-6 sm:p-8 border-t border-zinc-200 shrink-0">
+            <div className="bg-zinc-50 px-6 py-5 sm:px-8 border-t border-zinc-200 shrink-0">
               <p className="mb-4 text-[15px] font-bold text-zinc-950 tracking-tight">Payment method</p>
               
               <div className="grid grid-cols-3 gap-3">
@@ -400,7 +400,7 @@ export default function BillingPage() {
                 </button>
               </div>
 
-              <div className="mt-8">
+              <div className="mt-4">
                 <button
                   type="button"
                   className="group flex w-full items-center justify-center gap-2 rounded-xl py-3.5 font-medium text-white transition-all disabled:opacity-70 hover:brightness-110"
