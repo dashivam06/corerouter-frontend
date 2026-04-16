@@ -227,7 +227,19 @@ export default function DashboardHomePage() {
             Usage by model type
           </p>
           <div className="flex min-h-[150px] w-full items-start justify-start pt-2">
-            <ModelTypePie data={pieData} />
+            {pieData.reduce((acc, curr) => acc + curr.value, 0) === 0 ? (
+              <div className="flex w-full flex-col items-center justify-center py-6 text-center">
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-50">
+                  <BarChart2 className="h-6 w-6 text-zinc-300" />
+                </div>
+                <p className="text-sm font-medium text-zinc-900">No usage yet</p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Start using models to see your usage distribution.
+                </p>
+              </div>
+            ) : (
+              <ModelTypePie data={pieData} />
+            )}
           </div>
         </div>
       </div>
@@ -239,29 +251,36 @@ export default function DashboardHomePage() {
           </p>
           <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-4">
             <div className="space-y-3">
-              {(activity ?? []).slice(0, 4).map((a) => {
-                const { Icon, className } = getActivityIcon(a.action);
-                return (
-                  <div key={a.id} className="rounded-xl border border-zinc-100 px-3 py-2">
-                    <div className="flex items-start gap-3">
-                      <Icon className={`mt-0.5 size-4 shrink-0 ${className}`} />
-                      <div className="min-w-0 flex-1">
-                        <p className="break-words text-sm text-zinc-900">{a.description}</p>
-                      </div>
-                      <div className="shrink-0">
-                        <p className="flex items-center gap-3 whitespace-nowrap text-xs">
-                          {/* <span className="break-all text-zinc-500">
-                            {a.ipAddress && a.ipAddress !== "UNKNOWN"
-                              ? `IP: ${a.ipAddress}`
-                              : "IP: unknown"}
-                          </span> */}
-                          <span className="text-zinc-400">{formatActivityCreatedAt(a.created_at)}</span>
-                        </p>
+              {(!activity || activity.length === 0) ? (
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-50">
+                    <FileText className="h-6 w-6 text-zinc-300" />
+                  </div>
+                  <p className="text-sm font-medium text-zinc-900">No recent activity</p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Activities like logins, API requests, and key creations will appear here.
+                  </p>
+                </div>
+              ) : (
+                activity.slice(0, 4).map((a) => {
+                  const { Icon, className } = getActivityIcon(a.action);
+                  return (
+                    <div key={a.id} className="rounded-xl border border-zinc-100 px-3 py-2">
+                      <div className="flex items-start gap-3">
+                        <Icon className={`mt-0.5 size-4 shrink-0 ${className}`} />
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words text-sm text-zinc-900">{a.description}</p>
+                        </div>
+                        <div className="shrink-0">
+                          <p className="flex items-center gap-3 whitespace-nowrap text-xs">
+                            <span className="text-zinc-400">{formatActivityCreatedAt(a.created_at)}</span>
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
           <Link
